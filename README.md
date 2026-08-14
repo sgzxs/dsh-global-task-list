@@ -14,10 +14,25 @@ A global task library for the DeepSeek Harness: five model-facing CRUD tools, a 
 ## Install
 
 ```sh
+# npm (prebuilt)
 dsh plugin --profile web add dsh-global-task-list
+
+# or GitHub (source + prepare build)
+dsh plugin --profile web add github:sgzxs/dsh-global-task-list#v0.1.1
 ```
 
 The package declares `dsh.bundle`, so `dsh` adds it to the profile's `bundles` automatically. Requires a DSH installation with `@deepseek-ai/dsh-base` and the client surface (`dsh-web-app`) present.
+
+### GitHub install: allowBuilds
+
+Installing from GitHub pulls source, so pnpm must run the package's `prepare` script to build `lib/`. pnpm blocks that by default for git-hosted packages, and its `allowBuilds` key matches the **exact commit** (a package-name-only entry does not match — see [pnpm#12367](https://github.com/pnpm/pnpm/issues/12367)). The first `add` therefore fails with an `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` message that prints the exact key to allow. Copy that exact key into the profile's `pnpm-workspace.yaml`, then re-run:
+
+```yaml
+allowBuilds:
+  dsh-global-task-list@git+https://github.com/sgzxs/dsh-global-task-list.git#<commit>: true
+```
+
+Pin a tag (e.g. `#v0.1.1`) in the install command so the commit hash — and therefore the `allowBuilds` key — stays stable.
 
 ## Requirements
 
