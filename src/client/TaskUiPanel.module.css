@@ -1,0 +1,471 @@
+/* dsh-global-task-list task panel — a `shell.overlay` occupant: bottom-right floating
+   panel over the app frame, plus the recursive task-surface document renderer
+   below each card. Tokens only (--dsw-alias-* semantic aliases + theme motion
+   variables); the five task-status hues are component-local custom properties
+   mapped onto the theme's semantic state tokens (there is no one-to-one
+   official status token) — that local block is the status-token contract. */
+
+.root {
+  /* Component-local presentation contract: the five task status hues.
+     Values map to the theme's semantic state tokens so both palettes stay
+     legible; nothing here is a literal color. */
+  --task-status-pending: var(--dsw-alias-label-tertiary);
+  --task-status-running: var(--dsw-alias-brand-primary);
+  --task-status-done: var(--dsw-alias-state-success-primary);
+  --task-status-blocked: var(--dsw-alias-state-warn-primary);
+  --task-status-failed: var(--dsw-alias-state-error-primary);
+
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  max-height: 70vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-overlay);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+  box-shadow: 0 8px 32px color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent);
+
+  /* Shared scrollbar indirection (ui-theme's l2 pair for raised surfaces). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+/* ---- panel chrome ---- */
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex: none;
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--dsw-alias-label-primary);
+}
+
+.summary {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.errorBanner {
+  flex: none;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 60%, transparent);
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.empty {
+  padding: 8px 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ---- task card ---- */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.dotPending { background: var(--task-status-pending); }
+.dotRunning { background: var(--task-status-running); }
+.dotDone { background: var(--task-status-done); }
+.dotBlocked { background: var(--task-status-blocked); }
+.dotFailed { background: var(--task-status-failed); }
+.dotNeutral { background: var(--dsw-alias-label-tertiary); }
+
+.taskTitle {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+.jobLine {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: var(--ds-font-family-code);
+}
+
+/* ---- card actions ---- */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.statusButton,
+.deleteButton,
+.splitButton {
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+  transition:
+    background var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    border-color var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.statusButton {
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.statusButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.statusButton[data-active='true'] {
+  cursor: default;
+  font-weight: 500;
+}
+
+/* Active control tinted with the task-status hue it represents. */
+.statusButton[data-status='pending'][data-active='true'] {
+  color: var(--task-status-pending);
+  border-color: var(--task-status-pending);
+  background: color-mix(in srgb, var(--task-status-pending) 16%, transparent);
+}
+
+.statusButton[data-status='running'][data-active='true'] {
+  color: var(--task-status-running);
+  border-color: var(--task-status-running);
+  background: color-mix(in srgb, var(--task-status-running) 16%, transparent);
+}
+
+.statusButton[data-status='done'][data-active='true'] {
+  color: var(--task-status-done);
+  border-color: var(--task-status-done);
+  background: color-mix(in srgb, var(--task-status-done) 16%, transparent);
+}
+
+.statusButton[data-status='blocked'][data-active='true'] {
+  color: var(--task-status-blocked);
+  border-color: var(--task-status-blocked);
+  background: color-mix(in srgb, var(--task-status-blocked) 16%, transparent);
+}
+
+.deleteButton {
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 60%, transparent);
+  background: transparent;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.deleteButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+.deleteButton[data-confirming='true'] {
+  border-color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+}
+
+.splitButton {
+  margin-left: auto;
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 60%, transparent);
+  background: transparent;
+  color: var(--dsw-alias-brand-primary);
+}
+
+.splitButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+/* ---- task surface document ---- */
+
+.surface {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
+.surfaceSection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sectionTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.metricRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.metricLabel {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.metricValue {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.metricUnit {
+  margin-left: 2px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.metricTrend {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+}
+
+.badgeNeutral {
+  color: var(--dsw-alias-label-tertiary);
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.badgeSuccess {
+  color: var(--dsw-alias-state-success-primary);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 60%, transparent);
+}
+
+.badgeWarn {
+  color: var(--dsw-alias-state-warn-primary);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 60%, transparent);
+}
+
+.badgeError {
+  color: var(--dsw-alias-state-error-primary);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 60%, transparent);
+}
+
+.badgeBrand {
+  color: var(--dsw-alias-brand-primary);
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 60%, transparent);
+}
+
+.progressRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.progressLabel {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.progressTrack {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--dsw-alias-brand-primary);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.tableCell {
+  padding: 4px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  text-align: left;
+  color: var(--dsw-alias-label-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.surfaceList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.listItem {
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timelineEvent {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 10px;
+  border-left: 1px solid var(--dsw-alias-border-l2);
+}
+
+.eventTime {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.eventTitle {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.eventDetail {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.dag {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dagNodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dagNode {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.dagNodeDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.dagEdges {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dagEdge {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.disclosure {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.disclosureTitle {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.disclosure[open] .disclosureTitle {
+  color: var(--dsw-alias-label-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statusButton,
+  .deleteButton,
+  .splitButton {
+    transition: none;
+  }
+}

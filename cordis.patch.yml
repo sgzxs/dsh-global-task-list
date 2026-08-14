@@ -1,0 +1,5 @@
+# dsh-global-task-list bundle patch — mounts the host plugin. A `dsh.client` row is
+# also the browser roster the modules node half scans into __DSH_BOOT__.
+- insert:
+    - id: task-ui
+      name: 'dsh-global-task-list'
