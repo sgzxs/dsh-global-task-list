@@ -2,7 +2,7 @@
 
 A global task library for the DeepSeek Harness: five model-facing CRUD tools, a persistent browser panel, subagent job status synchronization, and a generative-UI surface renderer. Tasks persist across sessions in a `storageDomain` unit and survive restarts.
 
-English | 中文
+> 全局任务列表插件：为 DeepSeek Harness 提供一个跨会话持久化的任务库，附右下角常驻面板。主 agent 用 `task_add` 创建任务（带描述与进度），spawn 子 agent 后关联 `jobId` 自动同步终态；面板支持手动改状态、删除、拆分，并实时（SSE）刷新。任务可携带 `surface` 结构化文档渲染生成式 UI（进度条、时间线、表格、DAG 等）。
 
 ## What it does
 
