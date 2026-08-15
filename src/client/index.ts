@@ -102,7 +102,10 @@ export function apply(ctx: ClientContext): void {
     return () => { source.close() }
   }, 'task-ui: task list SSE subscription')
 
-  const injected = (actions: BoundActions<typeof store>): TaskUiPanelInjected => {
+  // Session-scope inject signature: runInject passes (sessionId, actions) —
+  // sessionId first because this slot is session-scoped, then the bound store
+  // actions because the entry declares a store. We need the SECOND argument.
+  const injected = (_sessionId: string, actions: BoundActions<typeof store>): TaskUiPanelInjected => {
     bound = actions
     // First paint should not wait for the next SSE frame.
     refreshWithError(actions, 'refresh')
