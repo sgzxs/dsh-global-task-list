@@ -1,8 +1,10 @@
 # Dependencies
 node_modules/
 
-# Build artifacts (rebuilt by `prepare` on install / `npm run build:client`)
-lib/
+# Client build artifacts (rebuilt by `prepare` / `npm run build:client`).
+# `lib/index.js` is HAND-WRITTEN Host-half source and IS tracked.
+lib/client.js
+lib/client.js.map
 *.tgz
 
 # Lockfile (dev-only; consumers resolve via peerDependencies against DSH)
