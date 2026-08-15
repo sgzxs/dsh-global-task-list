@@ -1,5 +1,5 @@
 /* dsh-global-task-list task panel — a `conversation.input.dock` occupant: a
-   dock strip above the composer card (session-scoped, so it naturally hides on
+   fixed bottom-right floating panel (session-scoped, so it naturally hides on
    the trajectory view), plus the recursive task-surface document renderer
    below each card. Tokens only (--dsw-alias-* semantic aliases + theme motion
    variables); the five task-status hues are component-local custom properties
@@ -16,9 +16,12 @@
   --task-status-blocked: var(--dsw-alias-state-warn-primary);
   --task-status-failed: var(--dsw-alias-state-error-primary);
 
-  position: relative;
-  width: 100%;
-  max-height: 40vh;
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  max-height: 70vh;
   overflow-y: auto;
   box-sizing: border-box;
   display: flex;
@@ -32,6 +35,7 @@
   font-size: 13px;
   line-height: 20px;
   box-shadow: 0 8px 32px color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent);
+  z-index: 100;
 
   /* Shared scrollbar indirection (ui-theme's l2 pair for raised surfaces). */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
