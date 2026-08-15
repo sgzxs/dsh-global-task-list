@@ -1,6 +1,6 @@
 {
   "name": "dsh-global-task-list",
-  "description": "Global task library with a persistent interactive panel: task CRUD tools, subagent job auto-sync, and a generative-UI surface renderer for the DeepSeek Harness",
+  "description": "Global task library with a persistent interactive panel: task CRUD tools, linked-subagent terminal-status sync, and a generative-UI surface renderer for the DeepSeek Harness",
   "version": "0.1.1",
   "publishConfig": {
     "access": "public"
