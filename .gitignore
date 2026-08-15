@@ -1,10 +1,9 @@
 # Dependencies
 node_modules/
 
-# Client build artifacts (rebuilt by `prepare` / `npm run build:client`).
-# `lib/index.js` is HAND-WRITTEN Host-half source and IS tracked.
-lib/client.js
-lib/client.js.map
+# Build artifacts (all of lib/ is now generated: client via tsdown.config.mjs,
+# host via tsdown.host.config.mjs; both rebuilt by `prepare`).
+lib/
 *.tgz
 
 # Lockfile (dev-only; consumers resolve via peerDependencies against DSH)

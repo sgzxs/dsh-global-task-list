@@ -3,3 +3,10 @@
 - insert:
     - id: task-ui
       name: 'dsh-global-task-list'
+      config:
+        jobStatusMap:
+          running: running
+          stopping: running
+          completed: done
+          killed: blocked
+          failed: failed

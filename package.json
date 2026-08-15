@@ -41,8 +41,9 @@
     }
   },
   "scripts": {
+    "build:host": "tsdown -c tsdown.host.config.mjs",
     "build:client": "tsdown",
-    "prepare": "npm run build:client",
+    "prepare": "npm run build:host && npm run build:client",
     "sync": "node sync-profile.mjs"
   },
   "dependencies": {
