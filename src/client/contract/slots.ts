@@ -1,14 +1,15 @@
 /**
  * Task panel slot contract: the registrant-side props composition for the
- * layout-owned `shell.overlay` list slot. The panel owns no child slots; it
- * receives the runtime share, the declared store seat, the locale seat, and
- * this plugin's injected operations face (Host HTTP calls live in the apply
- * world — the component only triggers them).
+ * conversation-owned `conversation.input.dock` list slot. The panel owns no
+ * child slots; it receives the runtime share, the declared store seat, the
+ * locale seat, and this plugin's injected operations face (Host HTTP calls
+ * live in the apply world — the component only triggers them).
  */
 import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-// Type-only: pulls ui-layout's SlotMap merge (the 'shell.overlay' entry) so
-// PropsRuntime<'shell.overlay'> resolves.
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+// Type-only: pulls ui-conversation's SlotMap merge (the
+// 'conversation.input.dock' entry) so PropsRuntime<'conversation.input.dock'>
+// resolves.
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { createTaskUiStore, TaskItem, TaskStatus } from '../store.ts'
 
 /**
@@ -44,7 +45,7 @@ export interface TaskUiPanelInjected {
  * operations face.
  */
 export type TaskUiPanelComponentProps =
-  PropsRuntime<'shell.overlay'>
+  PropsRuntime<'conversation.input.dock'>
   & PropsStore<ReturnType<typeof createTaskUiStore>>
   & PropsLocale<'task-ui'>
   & TaskUiPanelInjected

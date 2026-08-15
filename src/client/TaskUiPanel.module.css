@@ -1,5 +1,6 @@
-/* dsh-global-task-list task panel — a `shell.overlay` occupant: bottom-right floating
-   panel over the app frame, plus the recursive task-surface document renderer
+/* dsh-global-task-list task panel — a `conversation.input.dock` occupant: a
+   dock strip above the composer card (session-scoped, so it naturally hides on
+   the trajectory view), plus the recursive task-surface document renderer
    below each card. Tokens only (--dsw-alias-* semantic aliases + theme motion
    variables); the five task-status hues are component-local custom properties
    mapped onto the theme's semantic state tokens (there is no one-to-one
@@ -15,12 +16,9 @@
   --task-status-blocked: var(--dsw-alias-state-warn-primary);
   --task-status-failed: var(--dsw-alias-state-error-primary);
 
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  width: 360px;
-  max-width: calc(100vw - 32px);
-  max-height: 70vh;
+  position: relative;
+  width: 100%;
+  max-height: 40vh;
   overflow-y: auto;
   box-sizing: border-box;
   display: flex;

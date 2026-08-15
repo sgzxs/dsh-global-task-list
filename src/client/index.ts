@@ -1,7 +1,7 @@
 /**
  * dsh-global-task-list client half — persistent interactive task panel
- * (`shell.overlay`). The plugin owns the panel store and every Host HTTP
- * round-trip: an apply-world EventSource subscription on /task-ui/events
+ * (`conversation.input.dock`). The plugin owns the panel store and every Host
+ * HTTP round-trip: an apply-world EventSource subscription on /task-ui/events
  * refreshes GET /task-ui/tasks results through the store's bound actions
  * (SSE push replaces polling), and the injected operations face performs
  * the POST mutations. The panel component only reads the store (useStore),
@@ -11,8 +11,8 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: pulls ui-layout's SlotMap merge (the 'shell.overlay' entry).
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+// Type-only: pulls ui-conversation's SlotMap merge (the 'conversation.input.dock' entry).
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { TaskUiPanelInjected } from './contract/slots.ts'
 import { TaskUiPanel } from './TaskUiPanel.tsx'
 import { createTaskUiStore, type TaskItem } from './store.ts'
@@ -72,7 +72,8 @@ function splitPrompt(title: string): string {
  * Client plugin body: register the panel dictionaries, own the panel store,
  * subscribe to the Host's /task-ui/events SSE channel (refreshing the store
  * on each tasks-changed frame), and contribute the panel into the
- * layout-owned `shell.overlay` slot (additive list entry, id `task-ui`).
+ * conversation-owned `conversation.input.dock` slot (additive list entry,
+ * id `task-ui`, order 30).
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
@@ -129,9 +130,10 @@ export function apply(ctx: ClientContext): void {
     }
   }
 
-  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-    name: 'shell.overlay',
+  ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+    name: 'conversation.input.dock',
     id: 'task-ui',
+    order: 30,
     store,
     locale: NS,
     inject: injected,
