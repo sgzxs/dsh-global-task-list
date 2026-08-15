@@ -46,6 +46,7 @@
     "sync": "node sync-profile.mjs"
   },
   "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
