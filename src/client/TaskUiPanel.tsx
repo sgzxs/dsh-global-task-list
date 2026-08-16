@@ -133,28 +133,30 @@ export function TaskUiPanel({ t, useStore, actions, setStatus, requestDelete, as
           {t('action.collapse')}
         </button>
       </header>
-      {error !== null && (
-        <div className={css.errorBanner} role="alert">
-          {t(error.code === 'refresh' ? 'error.refresh' : 'error.operation', { detail: error.detail })}
-        </div>
-      )}
-      {tasks.length === 0
-        ? <div className={css.empty}>{t('panel.empty')}</div>
-        : (
-          <ul className={css.list}>
-            {tasks.map(task => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                confirming={confirming === task.id}
-                t={t}
-                setStatus={setStatus}
-                requestDelete={requestDelete}
-                askAgent={askAgent}
-              />
-            ))}
-          </ul>
+      <div className={css.body}>
+        {error !== null && (
+          <div className={css.errorBanner} role="alert">
+            {t(error.code === 'refresh' ? 'error.refresh' : 'error.operation', { detail: error.detail })}
+          </div>
         )}
+        {tasks.length === 0
+          ? <div className={css.empty}>{t('panel.empty')}</div>
+          : (
+            <ul className={css.list}>
+              {tasks.map(task => (
+                <TaskRow
+                  key={task.id}
+                  task={task}
+                  confirming={confirming === task.id}
+                  t={t}
+                  setStatus={setStatus}
+                  requestDelete={requestDelete}
+                  askAgent={askAgent}
+                />
+              ))}
+            </ul>
+          )}
+      </div>
     </div>
   )
 }

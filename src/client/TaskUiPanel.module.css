@@ -22,7 +22,7 @@
   width: 360px;
   max-width: calc(100vw - 32px);
   max-height: 70vh;
-  overflow-y: auto;
+  overflow: hidden;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -37,9 +37,6 @@
   box-shadow: 0 8px 32px color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent);
   z-index: 100;
 
-  /* Shared scrollbar indirection (ui-theme's l2 pair for raised surfaces). */
-  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
-  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 /* Collapsed state: a compact floating pill (chat view only) for one-tap re-expand. */
@@ -81,6 +78,19 @@
   align-items: baseline;
   gap: 10px;
   flex: none;
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  /* Shared scrollbar indirection (ui-theme's l2 pair for raised surfaces). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 .title {
