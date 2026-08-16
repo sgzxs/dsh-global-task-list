@@ -14,6 +14,7 @@ export const zh = {
   'action.delete': '删除',
   'action.confirmDelete': '确认删除？',
   'action.split': '拆分',
+  'action.collapse': '折叠',
   'error.refresh': '刷新失败：{detail}',
   'error.operation': '操作失败：{detail}',
 } satisfies Record<string, string>
@@ -35,6 +36,7 @@ export const en = {
   'action.delete': 'Delete',
   'action.confirmDelete': 'Confirm delete?',
   'action.split': 'Split',
+  'action.collapse': 'Collapse',
   'error.refresh': 'Refresh failed: {detail}',
   'error.operation': 'Operation failed: {detail}',
 } satisfies Record<TaskUiKey, string>

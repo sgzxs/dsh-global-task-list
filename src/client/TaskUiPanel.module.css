@@ -42,6 +42,38 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
+/* Collapsed state: a compact floating pill (chat view only) for one-tap re-expand. */
+.mini {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-overlay);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+  box-shadow: 0 8px 32px color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent);
+  cursor: pointer;
+  z-index: 100;
+}
+
+.mini:hover {
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.miniDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--task-status-running);
+}
+
 /* ---- panel chrome ---- */
 
 .header {
@@ -60,6 +92,27 @@
 .summary {
   font-size: 12px;
   color: var(--dsw-alias-label-secondary);
+}
+
+.collapseButton {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+  transition:
+    background var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    border-color var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.collapseButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
 }
 
 .errorBanner {
@@ -467,7 +520,8 @@
 @media (prefers-reduced-motion: reduce) {
   .statusButton,
   .deleteButton,
-  .splitButton {
+  .splitButton,
+  .collapseButton {
     transition: none;
   }
 }

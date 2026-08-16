@@ -133,6 +133,8 @@ export interface TaskUiState {
   error: TaskUiError | null
   /** Task id awaiting delete confirmation; null when none. */
   confirming: string | null
+  /** Whether the user collapsed the panel to the floating mini pill. */
+  collapsed: boolean
 }
 
 /** Declared write surface: pure draft mutators, the complete store API. */
@@ -145,6 +147,8 @@ type TaskUiActions = {
   setConfirming: (draft: TaskUiState, id: string | null) => void
   /** Clear the error banner. */
   clearError: (draft: TaskUiState) => void
+  /** Set whether the panel is collapsed to the mini pill. */
+  setCollapsed: (draft: TaskUiState, collapsed: boolean) => void
 }
 
 /**
@@ -156,12 +160,13 @@ type TaskUiActions = {
  */
 export function createTaskUiStore(): EngineStoreHandle<TaskUiState, TaskUiActions> {
   return defineStore({
-    init: (): TaskUiState => ({ tasks: [], error: null, confirming: null }),
+    init: (): TaskUiState => ({ tasks: [], error: null, confirming: null, collapsed: false }),
     actions: {
       refresh: (draft, tasks) => { draft.tasks = tasks },
       setError: (draft, error) => { draft.error = error },
       setConfirming: (draft, id) => { draft.confirming = id },
       clearError: (draft) => { draft.error = null },
+      setCollapsed: (draft, collapsed) => { draft.collapsed = collapsed },
     },
   })
 }

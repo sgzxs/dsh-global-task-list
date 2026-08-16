@@ -5,7 +5,7 @@
  * through the injected callbacks (the apply world owns every fetch). Tasks
  * carrying a `surface` document render it below the card via SurfaceView.
  */
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { TaskItem, TaskStatus } from './store.ts'
 import type { TaskUiKey } from './locales.ts'
 import type { TaskUiPanelComponentProps } from './contract/slots.ts'
@@ -31,6 +31,46 @@ const STATUS_LABEL_KEY: Record<TaskStatus, TaskUiKey> = {
 type PanelT = TaskUiPanelComponentProps['t']
 
 /**
+ * Derive whether the active conversation view is the built-in Chat view by
+ * observing the session header's accessible tab ring. The chat entry is the
+ * first tab (order 0, DEFAULT_VIEW_ID 'chat'); the trajectory entry is a
+ * later order, so a selected index other than 0 means "not chat". With one
+ * view there is no tab ring and chat is active by definition. This is the
+ * only stable signal a third-party dock occupant can read: the active view id
+ * lives in ui-conversation's private per-session store, not a service.
+ */
+function useActiveViewIsChat(): boolean {
+  const [isChat, setIsChat] = useState<boolean>(true)
+
+  useEffect(() => {
+    const read = (): boolean => {
+      const tabs = Array.from(document.querySelectorAll<HTMLElement>('[role="tablist"] [role="tab"]'))
+      if (tabs.length === 0) return true
+      const selected = tabs.findIndex(tab => tab.getAttribute('aria-selected') === 'true')
+      // No selection is a transient mount state: keep the panel visible.
+      return selected <= 0
+    }
+
+    let latest = read()
+    setIsChat(latest)
+
+    // Attribute-filtered over the whole document: only view switches mutate
+    // aria-selected, so this stays cheap even while the chat view streams.
+    const observer = new MutationObserver(() => {
+      const next = read()
+      if (next !== latest) {
+        latest = next
+        setIsChat(next)
+      }
+    })
+    observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-selected'] })
+    return () => { observer.disconnect() }
+  }, [])
+
+  return isChat
+}
+
+/**
  * Render the task panel.
  * @param props - composed slot props (contract/slots.ts).
  * @returns the panel element tree.
@@ -39,6 +79,8 @@ export function TaskUiPanel({ t, useStore, actions, setStatus, requestDelete, as
   const tasks = useStore(s => s.tasks)
   const error = useStore(s => s.error)
   const confirming = useStore(s => s.confirming)
+  const collapsed = useStore(s => s.collapsed)
+  const viewIsChat = useActiveViewIsChat()
 
   // An armed delete confirmation lapses on its own (legacy panel parity);
   // the store is the only confirmation holder.
@@ -59,11 +101,37 @@ export function TaskUiPanel({ t, useStore, actions, setStatus, requestDelete, as
     return result
   }, [tasks])
 
+  // Auto-hide off the Chat view (trajectory/waterfall): the composer dock the
+  // panel rides is resident chrome, so it stays mounted across view switches.
+  if (!viewIsChat) return null
+
+  // Manual collapse: a compact floating pill keeps one-tap re-expand.
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        className={css.mini}
+        aria-label={t('panel.title')}
+        onClick={() => { actions.setCollapsed(false) }}
+      >
+        <span className={css.miniDot} aria-hidden="true" />
+        {t('panel.title')}{tasks.length > 0 ? ` · ${tasks.length}` : ''}
+      </button>
+    )
+  }
+
   return (
     <div className={css.root}>
       <header className={css.header}>
         <div className={css.title}>{t('panel.title')}</div>
         <div className={css.summary}>{t('panel.summary', counts)}</div>
+        <button
+          type="button"
+          className={css.collapseButton}
+          onClick={() => { actions.setCollapsed(true) }}
+        >
+          {t('action.collapse')}
+        </button>
       </header>
       {error !== null && (
         <div className={css.errorBanner} role="alert">
