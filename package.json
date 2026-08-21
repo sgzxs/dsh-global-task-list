@@ -1,17 +1,18 @@
 {
   "name": "dsh-global-task-list",
-  "description": "Global task library with a persistent interactive panel: task CRUD tools, linked-subagent terminal-status sync, and a generative-UI surface renderer for the DeepSeek Harness",
   "version": "0.1.1",
-  "publishConfig": {
-    "access": "public"
+  "description": "Global task library with a persistent interactive panel: task CRUD tools, linked-subagent terminal-status sync, and a generative-UI surface renderer for the DeepSeek Harness",
+  "homepage": "https://github.com/sgzxs/dsh-global-task-list#readme",
+  "bugs": {
+    "url": "https://github.com/sgzxs/dsh-global-task-list/issues"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sgzxs/dsh-global-task-list.git"
   },
-  "type": "module",
   "license": "MIT",
-  "main": "lib/index.js",
+  "author": "",
+  "type": "module",
   "exports": {
     ".": {
       "default": "./lib/index.js"
@@ -21,25 +22,15 @@
     },
     "./package.json": "./package.json"
   },
+  "main": "lib/index.js",
+  "directories": {
+    "lib": "lib"
+  },
   "files": [
     "lib/index.js",
     "lib/client.js",
     "cordis.patch.yml"
   ],
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "platform": "web",
-      "inject": [
-        "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-conversation"
-      ],
-      "immediately": false
-    }
-  },
   "scripts": {
     "build:host": "tsdown -c tsdown.host.config.mjs",
     "build:client": "tsdown",
@@ -49,6 +40,11 @@
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1",
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "lightningcss": "^1.33.0",
+    "tsdown": "^0.13.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -63,20 +59,52 @@
     "react": "^18.2.0"
   },
   "peerDependenciesMeta": {
-    "@deepseek-ai/cordis": { "optional": true },
-    "@deepseek-ai/dsh-llm": { "optional": true },
-    "@deepseek-ai/dsh-storage-domain": { "optional": true },
-    "@deepseek-ai/dsh-tools": { "optional": true },
-    "@deepseek-ai/dsh-client-locale": { "optional": true },
-    "@deepseek-ai/dsh-client-runtime": { "optional": true },
-    "@deepseek-ai/dsh-client-ui-conversation": { "optional": true },
-    "@deepseek-ai/dsh-client-ui-layout": { "optional": true },
-    "@deepseek-ai/dsh-client-ui-slots": { "optional": true },
-    "react": { "optional": true }
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-storage-domain": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-locale": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-runtime": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-conversation": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-layout": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-slots": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
   },
-  "devDependencies": {
-    "@types/react": "^18.2.0",
-    "lightningcss": "^1.33.0",
-    "tsdown": "^0.13.0"
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "immediately": false
+    }
   }
 }

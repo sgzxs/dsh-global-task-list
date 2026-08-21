@@ -44,10 +44,11 @@ Pin a tag (e.g. `#v0.1.1`) in the install command so the commit hash — and the
 
 ```sh
 npm install
-npm run build:client   # tsdown bundles src/client → lib/client.js
+npm run build:host    # tsdown bundles src/index.ts → lib/index.js
+npm run build:client  # tsdown bundles src/client → lib/client.js
 ```
 
-The client half is TypeScript + TSX compiled with CSS Modules (lightningcss) into a `__ModuleLoader__` closure-factory bundle.
+Both halves are TypeScript: the Host half (`src/index.ts`) compiles to plain ESM, and the client half (TSX) compiles with CSS Modules (lightningcss) into a `__ModuleLoader__` closure-factory bundle.
 
 ## Model Experience
 
@@ -77,7 +78,6 @@ Independent of the agent's request-context assembly. The tool schemas are static
 
 - **No graph layout** — the `dag` surface renders nodes as chips plus an edges list, not a positioned graph.
 - **Surface is opaque** — the Host stores `surface` as unvalidated JSON (`z.record`); malformed kinds fall back to "ignored" in the renderer rather than a load-time error.
-- **Hardcoded tunables** — the `JOB_STATUS_MAP` is a module constant, not a `Config` field; deployments that want different job→status mappings must edit source.
 - **`sync-profile.mjs` is a local dev helper** — it is not published (excluded via `files`); use `dsh plugin add` for installation.
 
 ## Acknowledgements
