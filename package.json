@@ -1,6 +1,6 @@
 {
   "name": "dsh-global-task-list",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Global task library with a persistent interactive panel: task CRUD tools, linked-subagent terminal-status sync, and a generative-UI surface renderer for the DeepSeek Harness",
   "homepage": "https://github.com/sgzxs/dsh-global-task-list#readme",
   "bugs": {
