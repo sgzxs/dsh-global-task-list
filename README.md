@@ -13,12 +13,14 @@ A global task library for the DeepSeek Harness: five model-facing CRUD tools, a 
 
 ## Install
 
+Installing from **npm** is the recommended path — the package ships prebuilt `lib/`, so no build step runs at install time. The GitHub alternative pulls source and builds on install (see below).
+
 ```sh
-# npm (prebuilt)
+# npm (recommended, prebuilt — no build step at install)
 dsh plugin --profile web add dsh-global-task-list
 
-# or GitHub (source + prepare build)
-dsh plugin --profile web add github:sgzxs/dsh-global-task-list#v0.1.1
+# GitHub (alternative: source + prepare build)
+dsh plugin --profile web add github:sgzxs/dsh-global-task-list#v0.1.2
 ```
 
 The package declares `dsh.bundle`, so `dsh` adds it to the profile's `bundles` automatically. Requires a DSH installation with `@deepseek-ai/dsh-base` and the client surface (`dsh-web-app`) present.
@@ -32,7 +34,7 @@ allowBuilds:
   dsh-global-task-list@git+https://github.com/sgzxs/dsh-global-task-list.git#<commit>: true
 ```
 
-Pin a tag (e.g. `#v0.1.1`) in the install command so the commit hash — and therefore the `allowBuilds` key — stays stable.
+Pin a tag (e.g. `#v0.1.2`) in the install command so the commit hash — and therefore the `allowBuilds` key — stays stable.
 
 ## Requirements
 
