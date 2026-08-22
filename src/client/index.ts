@@ -80,8 +80,14 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'task-ui: dictionaries')
 
   const store = createTaskUiStore()
-  // Bound store actions arrive once the slot entry materializes (inject).
-  let bound: BoundActions<typeof store> | undefined
+  // The `conversation.input.dock` slot is session-scoped, so the framework
+  // instantiates one store per session; the bound actions that arrive on each
+  // materialization are therefore per-session too. Keep them in a map so every
+  // live session's store is refreshed on each SSE frame. Stale entries (a
+  // session whose panel unmounted) are harmless: the framework does not render
+  // unmounted session stores, and the per-registration disposer does not expose
+  // a per-session unmount hook.
+  const actionsBySession = new Map<string, BoundActions<typeof store>>()
 
   /** Fetch the task list and write it; a failure becomes an error banner. */
   const refreshWithError = (actions: BoundActions<typeof store>, code: 'refresh' | 'operation'): void => {
@@ -97,16 +103,17 @@ export function apply(ctx: ClientContext): void {
   // panel converged even when a frame is lost during the drop.
   ctx.effect(() => {
     const source = new EventSource('/task-ui/events')
-    source.onmessage = () => { if (bound !== undefined) refreshWithError(bound, 'refresh') }
-    source.onerror = () => { if (bound !== undefined) refreshWithError(bound, 'refresh') }
+    source.onmessage = () => { for (const actions of actionsBySession.values()) refreshWithError(actions, 'refresh') }
+    source.onerror = () => { for (const actions of actionsBySession.values()) refreshWithError(actions, 'refresh') }
     return () => { source.close() }
   }, 'task-ui: task list SSE subscription')
 
   // Session-scope inject signature: runInject passes (sessionId, actions) —
   // sessionId first because this slot is session-scoped, then the bound store
-  // actions because the entry declares a store. We need the SECOND argument.
-  const injected = (_sessionId: string, actions: BoundActions<typeof store>): TaskUiPanelInjected => {
-    bound = actions
+  // actions because the entry declares a store. Register the bound actions
+  // under this session's id so the SSE fan-out reaches EVERY live session.
+  const injected = (sessionId: string, actions: BoundActions<typeof store>): TaskUiPanelInjected => {
+    actionsBySession.set(sessionId, actions)
     // First paint should not wait for the next SSE frame.
     refreshWithError(actions, 'refresh')
     return {

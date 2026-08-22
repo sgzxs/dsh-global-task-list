@@ -14,6 +14,10 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { JobSnapshot } from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import Schema from '@deepseek-ai/schemastery'
 import z from 'zod'
 
@@ -136,11 +140,39 @@ async function readJsonBody(req: IncomingMessage): Promise<any> {
   }
 }
 
+/**
+ * Seed the bundled `task-ui` skill into the user-level DSH skill root on first
+ * activation. The plugin ships `skills/task-ui/SKILL.md`; once, when a user
+ * first mounts it, we copy it into `<dshHome>/skills/task-ui/SKILL.md` (rank
+ * 400 user root — every session sees it) so the model can load it to create
+ * tasks. Idempotent and non-clobbering: if the target already exists (a prior
+ * install or an edited user copy), we leave it alone so the author's future
+ * skill improvements never overwrite the user's edits with a stale bundle.
+ * Fail-soft: a write failure only logs and never blocks plugin load.
+ */
+function installBundledSkill(): void {
+  try {
+    // `import.meta.url` is the built lib/index.js inside the installed package,
+    // so ../skills/task-ui/SKILL.md is the packaged copy relative to lib/.
+    const src = fileURLToPath(new URL('../skills/task-ui/SKILL.md', import.meta.url))
+    if (!existsSync(src)) return
+    const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+    const dest = join(dshHome, 'skills', 'task-ui', 'SKILL.md')
+    if (existsSync(dest)) return
+    mkdirSync(dirname(dest), { recursive: true })
+    writeFileSync(dest, readFileSync(src, 'utf8'))
+    console.log('[task-ui] seeded bundled skill ->', dest)
+  } catch (error) {
+    console.log('[task-ui] skill install error:', String(error))
+  }
+}
+
 export function apply(ctx: Context, config: Config): void {
   // The patch row carries an explicit `config:` block, so the loader always
   // passes a validated config object here (schemastery fills schema defaults).
   const jobStatusMap = config.jobStatusMap
   console.log('[task-ui] host plugin loaded')
+  installBundledSkill()
   // Lazy-open: keep apply() sync (no official dsh-* plugin uses async apply;
   // the loader does not await it). Tools await the same promise on execute.
   const domainPromise = ctx.storageDomain.open(domainSpec)

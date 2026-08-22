@@ -9,7 +9,7 @@ const DST = join(homedir(), '.dsh', 'profiles', 'web', 'node_modules', 'dsh-glob
 await rm(DST, { recursive: true, force: true })
 await mkdir(DST, { recursive: true })
 
-for (const entry of ['package.json', 'cordis.patch.yml', 'lib', 'src', 'tsdown.config.mjs']) {
+for (const entry of ['package.json', 'cordis.patch.yml', 'lib', 'src', 'tsdown.config.mjs', 'skills']) {
   await cp(join(SRC, entry), join(DST, entry), { recursive: true })
 }
 

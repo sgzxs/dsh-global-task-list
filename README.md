@@ -20,7 +20,7 @@ Installing from **npm** is the recommended path — the package ships prebuilt `
 dsh plugin --profile web add dsh-global-task-list
 
 # GitHub (alternative: source + prepare build)
-dsh plugin --profile web add github:sgzxs/dsh-global-task-list#v0.1.3
+dsh plugin --profile web add github:sgzxs/dsh-global-task-list#v0.1.4
 ```
 
 The package declares `dsh.bundle`, so `dsh` adds it to the profile's `bundles` automatically. Requires a DSH installation with `@deepseek-ai/dsh-base` and the client surface (`dsh-web-app`) present.
@@ -34,7 +34,7 @@ allowBuilds:
   dsh-global-task-list@git+https://github.com/sgzxs/dsh-global-task-list.git#<commit>: true
 ```
 
-Pin a tag (e.g. `#v0.1.3`) in the install command so the commit hash — and therefore the `allowBuilds` key — stays stable.
+Pin a tag (e.g. `#v0.1.4`) in the install command so the commit hash — and therefore the `allowBuilds` key — stays stable.
 
 ## Requirements
 
