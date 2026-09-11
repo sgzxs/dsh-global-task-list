@@ -12,17 +12,16 @@ import { transform } from 'lightningcss'
 
 const ID = 'dsh-global-task-list'
 
-// PLATFORM_MODULES from packages/client/web/src/platform.ts
-// (+ documented runtime-store exemption).
+// PLATFORM_MODULES from packages/client/web/src/platform.ts. A require() to any
+// name outside that table misses at materialization and fails the whole row, so
+// this list is re-checked against that file on every platform bump.
 const EXTERNALS = [
   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client',
   '@deepseek-ai/cordis',
+  '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-web-react',
   '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-attachment',
-  '@deepseek-ai/dsh-client-schema-form',
-  '@deepseek-ai/dsh-client-runtime/client',
+  '@deepseek-ai/dsh-client-ui-dockkit',
 ]
 
 // Virtual-id wrapper keeping module CSS away from tsdown's own css pipeline

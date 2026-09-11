@@ -5,7 +5,7 @@
  * component reads via props.useStore. Task data itself stays on the Host
  * (the panel polls the HTTP API); the store never owns business truth.
  */
-import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
+import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
 
 /** The five task lifecycle statuses (Host schema). */
 export type TaskStatus = 'pending' | 'running' | 'done' | 'blocked' | 'failed'

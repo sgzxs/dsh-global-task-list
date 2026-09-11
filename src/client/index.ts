@@ -7,10 +7,7 @@
  * the POST mutations. The panel component only reads the store (useStore),
  * renders localized copy (t), and triggers those operations.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
-// Type-only: pulls the locale plugin's Context merge (ctx.locale).
-import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls ui-conversation's SlotMap merge (the 'conversation.input.dock' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { TaskUiPanelInjected } from './contract/slots.ts'
@@ -33,6 +30,26 @@ const NS = 'task-ui'
 
 /** Services required by the client plugin. */
 export const inject = ['slots', 'locale']
+
+/** The slots-service surface this plugin touches. */
+interface SlotsService {
+  inject: (slot: string, register: () => unknown) => void
+  register: (meta: Record<string, unknown>, component: unknown) => unknown
+}
+
+/**
+ * Client root context, stated as the members this file touches rather than
+ * imported from a platform package. A named import that stops resolving is a
+ * module-eval SyntaxError, and cordis reports that as a failed entry: the host
+ * exits instead of degrading. Structural members fail the opposite way, so a
+ * platform that renames a service costs this panel its registration, not the
+ * user's boot.
+ */
+interface TaskUiClientContext {
+  effect: (callback: () => unknown, label?: string) => void
+  locale: { register: (ns: string, dicts: Record<string, Record<string, string>>) => unknown }
+  slots: SlotsService
+}
 
 /** Fetch the task list from the Host API. */
 async function fetchTasks(): Promise<TaskItem[]> {
@@ -76,7 +93,7 @@ function splitPrompt(title: string): string {
  * id `task-ui`, order 30).
  * @param ctx - client root context.
  */
-export function apply(ctx: ClientContext): void {
+export function apply(ctx: TaskUiClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'task-ui: dictionaries')
 
   const store = createTaskUiStore()

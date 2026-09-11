@@ -20,7 +20,7 @@ Installing from **npm** is the recommended path — the package ships prebuilt `
 dsh plugin --profile web add dsh-global-task-list
 
 # GitHub (alternative: source + prepare build)
-dsh plugin --profile web add github:sgzxs/dsh-global-task-list#v0.1.4
+dsh plugin --profile web add github:sgzxs/dsh-global-task-list#v0.1.5
 ```
 
 The package declares `dsh.bundle`, so `dsh` adds it to the profile's `bundles` automatically. Requires a DSH installation with `@deepseek-ai/dsh-base` and the client surface (`dsh-web-app`) present.
@@ -34,11 +34,11 @@ allowBuilds:
   dsh-global-task-list@git+https://github.com/sgzxs/dsh-global-task-list.git#<commit>: true
 ```
 
-Pin a tag (e.g. `#v0.1.4`) in the install command so the commit hash — and therefore the `allowBuilds` key — stays stable.
+Pin a tag (e.g. `#v0.1.5`) in the install command so the commit hash — and therefore the `allowBuilds` key — stays stable.
 
 ## Requirements
 
-- DeepSeek Harness (`@deepseek-ai/dsh`), version compatible with `0.1.0-rc.6`.
+- DeepSeek Harness (`@deepseek-ai/dsh`) at `0.1.2-alpha.2` or later: the client bundle imports `defineStore` from `@deepseek-ai/dsh-client-store`, a browser module-table entry that does not exist on earlier hosts (there the panel fails to load with `Failed to load plugins`). Verified against `0.1.5-rc.2`.
 - The Host half resolves `@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-llm`, `@deepseek-ai/dsh-storage-domain`, and `zod` from the profile's node_modules.
 - The client bundle is prebuilt (`lib/client.js`) and ships with the package; no build step runs at install time.
 
