@@ -20,10 +20,12 @@ Installing from **npm** is the recommended path — the package ships prebuilt `
 dsh plugin --profile web add dsh-global-task-list
 
 # GitHub (alternative: source + prepare build)
-dsh plugin --profile web add github:sgzxs/dsh-global-task-list#v0.1.5
+dsh plugin --profile web add github:sgzxs/dsh-global-task-list#v0.2.0
 ```
 
 The package declares `dsh.bundle`, so `dsh` adds it to the profile's `bundles` automatically. Requires a DSH installation with `@deepseek-ai/dsh-base` and the client surface (`dsh-web-app`) present.
+
+Pin at least `0.2.0` for a `0.2.x` DSH runtime (the desktop app is `0.2.0-rc.2`): earlier releases declare `0.1.x`-only DSH peer ranges, and the runtime rejects them before pnpm runs, with `installation rejected: Plugin dsh-global-task-list@0.1.5 is incompatible with dsh 0.2.0-rc.2`. The desktop app additionally manages its profile itself — see [Installing on the desktop app](#installing-on-the-desktop-app).
 
 ### GitHub install: allowBuilds
 
@@ -34,13 +36,40 @@ allowBuilds:
   dsh-global-task-list@git+https://github.com/sgzxs/dsh-global-task-list.git#<commit>: true
 ```
 
-Pin a tag (e.g. `#v0.1.5`) in the install command so the commit hash — and therefore the `allowBuilds` key — stays stable.
+Pin a tag (e.g. `#v0.2.0`) in the install command so the commit hash — and therefore the `allowBuilds` key — stays stable.
 
 ## Requirements
 
-- DeepSeek Harness (`@deepseek-ai/dsh`) at `0.1.2-alpha.2` or later: the client bundle imports `defineStore` from `@deepseek-ai/dsh-client-store`, a browser module-table entry that does not exist on earlier hosts (there the panel fails to load with `Failed to load plugins`). Verified against `0.1.5-rc.2`.
+- DeepSeek Harness (`@deepseek-ai/dsh`) at `0.1.2-alpha.2` or later: the client bundle imports `defineStore` from `@deepseek-ai/dsh-client-store`, a browser module-table entry that does not exist on earlier hosts (there the panel fails to load with `Failed to load plugins`). Verified against `0.1.5-rc.2` (CLI/web profiles) and `0.2.0-rc.2` (the DeepSeek Harness desktop app).
 - The Host half resolves `@deepseek-ai/dsh-tools`, `@deepseek-ai/dsh-llm`, `@deepseek-ai/dsh-storage-domain`, and `zod` from the profile's node_modules.
 - The client bundle is prebuilt (`lib/client.js`) and ships with the package; no build step runs at install time.
+
+## DSH version compatibility
+
+The Host half is written against two DSH generations because the `jobs` service changed shape in 0.2:
+
+| Surface | 0.1.x | 0.2.x | This plugin |
+|---|---|---|---|
+| Job change feed | `ctx.jobs.onJobsChanged(listener)` (listener receives the owner Agent) | `ctx.jobs.events.subscribe({ owners: 'all' }, listener)` (each commit carries the job snapshot) | feature-detects `jobs.events.subscribe` first, falls back to `onJobsChanged`, and disables the bridge with a log line if neither exists |
+| `ctx.jobs.list(caller)` | `caller` is the owner **Agent** | `caller` is the owner's **session id** | only used on the 0.1.x path, which is the path that needs it |
+
+Everything else the plugin touches is unchanged between the two: `defineTool` / `tools.register`, `createUserMessage`, `defineDomain` / `domainTable` / `storageDomain.open`, `webServer.register({ kind, path, handler })`, `agents.list()` / `agent.followup` / `session.header.origin`, and the `domain/changed` event. The client half needs no version split at all — the browser platform module table (`react`, `react/jsx-runtime`, `react-dom`, `react-dom/client`, `@deepseek-ai/cordis`, `dsh-client-store`, `dsh-client-ui-slots`, `dsh-client-ui-primitives`, `dsh-client-ui-dockkit`) and the `conversation.input.dock` slot contract are identical in both.
+
+`peerDependencies` therefore admit both lines (`^0.1.5-rc.2 || ^0.2.0-rc.2`). DSH enforces every `@deepseek-ai/dsh*` peer range against the running runtime at install time and again at profile composition, so a range that excludes the running version blocks the plugin instead of degrading.
+
+### Installing on the desktop app
+
+The desktop app owns its profile: `dsh --profile desktop` is refused outside the Electron application, and `dsh plugin --profile desktop <args>` expects the app to be fully quit first. Either install through the app's own Plugins page, or place the package and declare it by hand:
+
+```jsonc
+// $DSH_HOME/profiles/desktop/package.json
+{
+  "dependencies": { "dsh-global-task-list": "link:../../plugins/dsh-global-task-list" },
+  "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-global-task-list"] } }
+}
+```
+
+Profiles reload their configuration by default (`dsh-hmr`), so a running desktop app mounts the plugin on its next recompose — no restart required.
 
 ## Build (development)
 
@@ -80,7 +109,8 @@ Independent of the agent's request-context assembly. The tool schemas are static
 
 - **No graph layout** — the `dag` surface renders nodes as chips plus an edges list, not a positioned graph.
 - **Surface is opaque** — the Host stores `surface` as unvalidated JSON (`z.record`); malformed kinds fall back to "ignored" in the renderer rather than a load-time error.
-- **`sync-profile.mjs` is a local dev helper** — it is not published (excluded via `files`); use `dsh plugin add` for installation.
+- **`sync-profile.mjs` is a local dev helper** — it copies the built package into `$DSH_HOME/profiles/<profile>/node_modules` (profile defaults to `web`) and warns when that profile's `dsh.profile.bundles` does not list the plugin. It is not published (excluded via `files`); use `dsh plugin add` for installation.
+- **Job-status sync degrades, never blocks** — a runtime exposing neither `jobs.events.subscribe` nor `jobs.onJobsChanged` keeps the tools, the panel, and the HTTP API, and logs `jobs service exposes no change feed; job status sync disabled`.
 
 ## Acknowledgements
 

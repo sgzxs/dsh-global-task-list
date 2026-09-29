@@ -10,8 +10,9 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { JobSnapshot } from '@deepseek-ai/dsh-jobs'
+// Type-only: pulls the `ctx.jobs` Context augmentation without binding the
+// service shape, which differs between DSH 0.1.x and 0.2.x (see JobFeed).
+import type {} from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -71,6 +72,29 @@ const DEFAULT_JOB_STATUS_MAP: JobStatusMap = {
   completed: 'done',
   killed: 'blocked',
   failed: 'failed',
+}
+
+/** The members this bridge reads from one background-job snapshot. */
+interface JobStatusView {
+  id: string
+  status: string
+}
+
+/**
+ * The background-job service members this bridge touches, stated structurally
+ * because the service changed shape in DSH 0.2: 0.1.x exposes
+ * `onJobsChanged(listener)` plus `list(ownerAgent)`, while 0.2.x replaces the
+ * hook with an event hub (`events.subscribe`) and narrows `list` to take the
+ * owner's session id. Reading members structurally keeps the plugin loading on
+ * either runtime instead of failing at apply() on a removed method.
+ */
+interface JobFeed {
+  /** Visible jobs for `caller` (0.1.x: the owner Agent; 0.2.x: its session id). */
+  list: (caller: unknown) => JobStatusView[]
+  /** 0.1.x change hook: fires with the owner Agent whose visible set changed. */
+  onJobsChanged?: (listener: (owner: unknown) => void) => unknown
+  /** 0.2.x event hub: every commit is delivered with the resulting job snapshot. */
+  events?: { subscribe?: (filter: { owners: 'all' }, listener: (event: unknown) => void) => unknown }
 }
 
 /** Deployment-configurable plugin settings (schemastery schema). */
@@ -179,45 +203,84 @@ export function apply(ctx: Context, config: Config): void {
   const tasksPromise: Promise<KvTable<string, TaskRecord>> = domainPromise.then((domain) => domain.table('tasks'))
 
   // ---- subagent job bridge: auto-sync job status -> task status ----
-  // onJobsChanged passes the owner Agent whose visible set changed; the
-  // owner handle is the authorization key for ctx.jobs.list().
+  // The jobs service changed shape in DSH 0.2, so this bridge feature-detects
+  // the newer event hub and falls back to the older change hook. Both paths
+  // funnel into the same write, so the library behaves identically either way:
+  //
+  //   0.2.x — `jobs.events.subscribe({ owners: 'all' }, listener)`; every
+  //           commit (registered / progress / settled) carries the resulting
+  //           job snapshot, so no follow-up lookup is needed. Its `settled`
+  //           event is what advances a linked task to a terminal state. Note
+  //           `jobs.list(caller)` also narrowed there: `caller` is the owner's
+  //           session id, not the Agent handle 0.1.x expected.
+  //   0.1.x — `jobs.onJobsChanged(listener)`; the listener receives the owner
+  //           Agent whose visible set changed, and that handle is the
+  //           authorization key for `ctx.jobs.list(owner)`.
+  const jobFeed = ctx.jobs as unknown as JobFeed
   let syncing = false
-  const syncFromJobs = async (owner: Agent | undefined): Promise<void> => {
+
+  // Only tasks already linked to a job auto-advance. Tasks are created
+  // explicitly by the master agent (task_add), never auto-registered from
+  // arbitrary background jobs (npm/build commands would pollute the library
+  // with command-noise titles).
+  const applyJobStatus = async (jobId: string, jobStatus: string): Promise<void> => {
+    const mapped = jobStatusMap[jobStatus]
+    if (mapped === undefined) return
+    const tasks = await tasksPromise
+    for await (const [key, value] of tasks.entries()) {
+      if (value.jobId !== jobId) continue
+      if (value.status !== mapped) {
+        await tasks.put(key, { ...value, status: mapped as TaskStatus, updatedAt: Date.now() })
+      }
+    }
+  }
+
+  // Serialized: a burst of job events must not interleave two read-modify-write
+  // passes over the same task table (the 0.1.x flag is kept for both paths).
+  const runSync = async (work: () => Promise<void>): Promise<void> => {
     if (syncing) return
     syncing = true
     try {
-      const tasks = await tasksPromise
-      let snapshots: JobSnapshot[]
-      try {
-        snapshots = ctx.jobs.list(owner)
-      } catch {
-        return // caller without a readable owner set — nothing to sync
-      }
-      for (const snap of snapshots) {
-        const mapped = jobStatusMap[snap.status]
-        if (mapped === undefined) continue
-        // Only tasks already linked to a job auto-advance. Tasks are created
-        // explicitly by the master agent (task_add), never auto-registered
-        // from arbitrary background jobs (npm/build commands would pollute
-        // the library with command-noise titles).
-        for await (const [key, value] of tasks.entries()) {
-          if (value.jobId !== snap.id) continue
-          if (value.status !== mapped) {
-            await tasks.put(key, { ...value, status: mapped as TaskStatus, updatedAt: Date.now() })
-          }
-        }
-      }
+      await work()
     } catch (error) {
       console.log('[task-ui] job sync error:', String(error))
     } finally {
       syncing = false
     }
   }
-  ctx.jobs.onJobsChanged((owner) => {
-    if (owner === undefined) return
-    // fire-and-forget; serialized by the syncing flag
-    void syncFromJobs(owner)
+
+  /** 0.1.x path: re-read the owner's visible jobs, then sync each snapshot. */
+  const syncFromJobs = (owner: unknown): Promise<void> => runSync(async () => {
+    let snapshots: JobStatusView[]
+    try {
+      snapshots = jobFeed.list(owner)
+    } catch {
+      return // caller without a readable owner set — nothing to sync
+    }
+    for (const snap of snapshots) await applyJobStatus(snap.id, snap.status)
   })
+
+  const jobEvents = jobFeed.events
+  if (typeof jobEvents?.subscribe === 'function') {
+    // 0.2.x: the event already names the changed job, so sync straight off it.
+    jobEvents.subscribe({ owners: 'all' }, (event) => {
+      const job = (event as { job?: { id?: unknown; status?: unknown } }).job
+      if (typeof job?.id !== 'string' || typeof job.status !== 'string') return
+      const { id, status } = job
+      // fire-and-forget; serialized by runSync
+      void runSync(() => applyJobStatus(id, status))
+    })
+  } else if (typeof jobFeed.onJobsChanged === 'function') {
+    jobFeed.onJobsChanged((owner) => {
+      if (owner === undefined) return
+      // fire-and-forget; serialized by runSync
+      void syncFromJobs(owner)
+    })
+  } else {
+    // The task library is the plugin's core; a runtime with no job change feed
+    // loses only the automatic status link, never the panel or the tools.
+    console.log('[task-ui] jobs service exposes no change feed; job status sync disabled')
+  }
 
   // ---- HTTP API for the client panel (same-origin fetch + poll) ----
   ctx.webServer.register({
