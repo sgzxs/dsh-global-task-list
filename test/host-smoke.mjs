@@ -145,6 +145,12 @@ check('task_add description states the delegation moment', byName.task_add.descr
 check('task_add requires the flow fields', byName.task_add.description.includes('steps'))
 check('task_update description covers job linking', byName.task_update.description.includes('jobId'))
 check('task_update description warns against stale entries', byName.task_update.description.includes('never moves'))
+// The completion form lives in the skill too, but it is a correctness rule for
+// the record, not a workflow detail: it must be reachable without loading the
+// skill, because a model that never loads it is exactly who gets this wrong.
+check('task_update description clears nextStep on completion', byName.task_update.description.includes('clear `nextStep`'))
+check('task_update description keeps the flow as the record', byName.task_update.description.includes('every step `done`'))
+check('task_update description records the outcome', byName.task_update.description.includes('write the outcome into `description`'))
 check('task_get description frames the handoff', byName.task_get.description.includes('another session'))
 // `defineTool` stores the CONVERTED JSON Schema, which is also what the model
 // sees, so assert on that rather than on the raw parameter spec.
@@ -181,6 +187,55 @@ check('task_get reports a missing id softly', (await byName.task_get.execute({ i
 
 await byName.task_delete.execute({ id })
 check('task_delete removes it', rows.size === 0)
+
+// ---- just-in-time notes ----
+// These are derived from the resulting record, not restated from the guidance,
+// so they must stay silent when the record is right and name the specific gap
+// when it is not. That is what makes them worth their tokens.
+const bare = await byName.task_add.execute({ title: 'bare task' })
+const bareId = bare.text.split(': ')[1].split(' ')[0]
+console.log(`title-only create    : ${bare.text.split('\n')[1] ?? bare.text}`)
+check('a title-only create is called out', bare.text.includes('created without'))
+check('the note names the missing fields',
+  bare.text.includes('`description`') && bare.text.includes('`progress`') && bare.text.includes('`steps`'))
+await byName.task_delete.execute({ id: bareId })
+
+const whole = await byName.task_add.execute({
+  title: 'whole task',
+  description: 'what it is',
+  nextStep: 'the next thing',
+  progress: { text: 'where it stands', percent: 0 },
+  steps: [{ text: 'a step', state: 'current' }],
+})
+const wholeId = whole.text.split(': ')[1].split(' ')[0]
+check('a complete create carries no note', !whole.text.includes('note:'))
+
+const sloppy = await byName.task_update.execute({ id: wholeId, status: 'done' })
+console.log('--- finishing while still advertising work ---')
+console.log(sloppy.text)
+check('finishing with a live nextStep is called out', sloppy.text.includes('`nextStep` is still'))
+check('the note quotes the offending nextStep', sloppy.text.includes('the next thing'))
+check('unfinished steps are called out too', sloppy.text.includes('still not `done`'))
+
+// The empty-description branch on its own: a tidy record with no outcome.
+const noOutcome = await byName.task_add.execute({
+  title: 'no outcome',
+  progress: { text: 'done already', percent: 100 },
+  steps: [{ text: 'the only step', state: 'done' }],
+})
+const noOutcomeId = noOutcome.text.split(': ')[1].split(' ')[0]
+const doneBare = await byName.task_update.execute({ id: noOutcomeId, status: 'done' })
+check('an empty description is called out', doneBare.text.includes('`description` is empty'))
+await byName.task_delete.execute({ id: noOutcomeId })
+
+const tidy = await byName.task_update.execute({
+  id: wholeId,
+  nextStep: '',
+  steps: [{ text: 'a step', state: 'done' }],
+  description: 'the outcome',
+})
+check('a tidy completion carries no note', !tidy.text.includes('note:'))
+await byName.task_delete.execute({ id: wholeId })
 
 // A task whose job was linked before this process started cannot still be
 // running: the job registry is in-process. The Host must say so in both read

@@ -4,6 +4,16 @@ Notable changes per release, newest first. The DSH peer range is this package's
 compatibility contract: a `0.1.x` release does not install on a `0.2.x` runtime,
 and the runtime rejects it before pnpm runs.
 
+## [0.2.6] — 2026-10-01
+
+### Added
+
+- **Just-in-time notes in tool results.** `task_add` now names the fields a title-only entry is missing, and `task_update` on a task that just became `done` names the specific gaps in the finished record: a `nextStep` still set, steps not marked `done`, an empty `description`. They are derived from the record they just wrote — they restate no rule and repeat no guidance — so they say nothing while the record is right and cost nothing until something is wrong, and they land at the moment it can still be fixed. A tool result is appended to the conversation, so unlike a section it never touches the cached prompt prefix.
+
+### Changed
+
+- The completion form moved into the always-on layer. `task_update`'s description now says to clear `nextStep`, leave `steps` all `done`, and write the outcome into `description` — because that rule was reachable only by loading the skill, and a model that never loads the skill is exactly who leaves the record half-finished. (`host-smoke` asserts all three clauses, so a rewording cannot silently drop them.)
+
 ## [0.2.5] — 2026-10-01
 
 ### Changed
@@ -176,6 +186,7 @@ Initial release: a cross-session global task library, a floating panel with
 status/delete/split controls, subagent job-status sync, and the generative-UI
 `surface` renderer.
 
+[0.2.6]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.2...v0.2.3

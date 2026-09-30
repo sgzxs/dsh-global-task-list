@@ -393,6 +393,52 @@ async function openTaskDomain(ctx: Context, spec: typeof domainSpec) {
   }
 }
 
+/**
+ * Just-in-time note for a task that was just created, derived from the record
+ * rather than restated from the guidance.
+ *
+ * The fields are optional in the schema, so a model can create a title-only
+ * entry; the panel then has nothing to draw beyond a fallback node. Saying so in
+ * the tool result costs nothing until it happens, and names exactly what THIS
+ * record is missing.
+ * @param task - the task as written.
+ * @returns the note block, or '' when the record carries everything it should.
+ */
+function creationNotes(task: TaskRecord): string {
+  const missing: string[] = []
+  if (task.description === '') missing.push('`description`')
+  if (task.progress === null) missing.push('`progress`')
+  if (task.steps.length === 0) missing.push('`steps`')
+  if (missing.length === 0) return ''
+  return `\nnote: created without ${missing.join(', ')}. The panel can only draw what the record carries — fill these in with \`task_update\` now.`
+}
+
+/**
+ * Just-in-time note for a task that was just marked done, derived from the
+ * resulting record.
+ *
+ * Finishing rules live in this tool's description and in the bundled skill, but
+ * a model that never loads the skill is exactly the one that leaves the record
+ * half-finished — so report the specific inconsistency at the moment it is
+ * created, instead of repeating the rule every time.
+ * @param task - the task as it now stands.
+ * @returns the note block, or '' when the finished record is consistent.
+ */
+function completionNotes(task: TaskRecord): string {
+  if (task.status !== 'done') return ''
+  const problems: string[] = []
+  if (task.nextStep !== '') {
+    problems.push(`\`nextStep\` is still ${JSON.stringify(task.nextStep)} — a finished task that still advertises a next action misleads whoever picks it up, so clear it`)
+  }
+  const outstanding = task.steps.filter((step) => step.state !== 'done')
+  if (outstanding.length > 0) {
+    problems.push(`${outstanding.length} step(s) are still not \`done\` (${outstanding.map((step) => JSON.stringify(step.text)).join(', ')}) and will read as outstanding — mark them done to keep the flow as the record of what was actually done`)
+  }
+  if (task.description === '') problems.push('`description` is empty — write the outcome there')
+  if (problems.length === 0) return ''
+  return `\nnote: marked done, but the record is incomplete — ${problems.join('; ')}.`
+}
+
 export function apply(ctx: Context, config: Config): void {
   // The patch row carries an explicit `config:` block, so the loader always
   // passes a validated config object here (schemastery fills schema defaults).
@@ -747,13 +793,14 @@ export function apply(ctx: Context, config: Config): void {
         createdAt: now,
         updatedAt: now,
       })
-      return { text: `task added: ${id} — ${args.title}` }
+      const created = await getTask(tasks, id)
+      return { text: `task added: ${id} — ${args.title}${created === undefined ? '' : creationNotes(created)}` }
     },
   }))
 
   registerTool(defineTool({
     name: 'task_update',
-    description: 'Advance one task in the global task library. While the task is in flight, keep its `progress` and `steps` current — mark finished steps `done`, the live one `current`, the next one `next` — and rewrite `nextStep`; an entry that never moves is worse than none. When you delegate the task to a subagent, link the spawned job with `jobId` and set status `running`, and its terminal status follows that job automatically. Mark it `done` as soon as it is finished.',
+    description: 'Advance one task in the global task library. While the task is in flight, keep its `progress` and `steps` current — mark finished steps `done`, the live one `current`, the next one `next` — and rewrite `nextStep`; an entry that never moves is worse than none. When you delegate the task to a subagent, link the spawned job with `jobId` and set status `running`, and its terminal status follows that job automatically. Mark it `done` as soon as it is finished, and finish it properly: clear `nextStep`, since a finished task that still advertises a next action misleads whoever picks it up next; leave `steps` in place with every step `done`, since that sequence is the record of what was actually done; and write the outcome into `description`.',
     parameters: {
       id: { type: 'string', required: true, description: 'Task id.' },
       title: { type: 'string', description: 'New title.' },
@@ -795,7 +842,7 @@ export function apply(ctx: Context, config: Config): void {
         updatedAt: Date.now(),
       }
       await tasks.put(args.id, next)
-      return { text: `task updated: ${args.id}` }
+      return { text: `task updated: ${args.id}${completionNotes(next)}` }
     },
   }))
 
