@@ -415,6 +415,13 @@ rows.delete('stale-1')
   check('refreshes a copy nobody edited', readFileSync(skillPath, 'utf8') === seeded)
   check('no sidecar when the file was ours', !existsSync(sidecarPath))
 
+  // An install that predates the marker: identical body, no marker. Adopt it by
+  // writing the marker alone, so it updates itself from here on.
+  writeFileSync(skillPath, seeded.slice(seeded.indexOf('\n') + 1))
+  applyAgain()
+  check('adopts an unstamped copy that is already current', readFileSync(skillPath, 'utf8') === seeded)
+  check('adoption writes no sidecar', !existsSync(sidecarPath))
+
   // A hand-edited file has no valid marker. Leave it, offer the new text beside.
   writeFileSync(skillPath, '# my own manual\n')
   applyAgain()

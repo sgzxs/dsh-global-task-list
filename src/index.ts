@@ -347,6 +347,16 @@ function installBundledSkill(): void {
       return
     }
 
+    // Unstamped but already carrying exactly this package's text: every install
+    // that predates the marker looks like this. Adopt it — the marker is the only
+    // thing written, so no instruction text changes and no edit can be lost —
+    // which is what lets it update itself from here on.
+    if (marker === null && current === body) {
+      writeFileSync(dest, stamped)
+      console.log('[task-ui] adopted the existing skill copy (body already current); it updates in place from now on')
+      return
+    }
+
     // Unstamped (an older version of this plugin seeded it) or edited by hand:
     // never clobber. Offer the new text alongside and say so once.
     const sidecar = `${dest}.new`

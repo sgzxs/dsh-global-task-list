@@ -4,6 +4,12 @@ Notable changes per release, newest first. The DSH peer range is this package's
 compatibility contract: a `0.1.x` release does not install on a `0.2.x` runtime,
 and the runtime rejects it before pnpm runs.
 
+## [0.2.9] — 2026-10-01
+
+### Fixed
+
+- **Migration onto the marked seed is now automatic.** 0.2.8 introduced the marker, but an existing unstamped copy — which is every install that predates it — fell into the "possibly edited" branch: left alone, with `SKILL.md.new` beside it. Safe, but noisy for the common case of a file nobody has touched, and it left those installs unable to update themselves. An unstamped copy whose body already equals this package's text is now **adopted**: only the marker line is written, no instruction text changes, and it updates in place from then on. A copy that genuinely differs is still left untouched with the newer text alongside.
+
 ## [0.2.8] — 2026-10-01
 
 ### Fixed
@@ -206,6 +212,7 @@ Initial release: a cross-session global task library, a floating panel with
 status/delete/split controls, subagent job-status sync, and the generative-UI
 `surface` renderer.
 
+[0.2.9]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.5...v0.2.6
