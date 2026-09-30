@@ -4,6 +4,14 @@ Notable changes per release, newest first. The DSH peer range is this package's
 compatibility contract: a `0.1.x` release does not install on a `0.2.x` runtime,
 and the runtime rejects it before pnpm runs.
 
+## [0.2.10] — 2026-10-01
+
+### Fixed
+
+- **Installs seeded before the marker now migrate too.** 0.2.9 adopted an unstamped copy only when its body already matched the current text — which covers a recent install, but not the users a fix most needs to reach: a copy that predates the marker *and* is several releases old looked exactly like one somebody had edited by hand, so it was left alone with a `SKILL.md.new` beside it and stayed on its old manual.
+
+  The package now carries the sha256 of every body it has ever shipped in this file, taken from its own history — 0.1.1–0.1.5 (6,762 bytes), 0.2.0 (10,904) and 0.2.2 (11,325). An unstamped copy matching one of them is provably ours and unmodified, so it is brought forward. Digests are compared over LF-normalised text, so a copy whose line endings a tool changed still matches. Only a copy matching nothing — the user's own — is left untouched with the new text beside it.
+
 ## [0.2.9] — 2026-10-01
 
 ### Fixed
@@ -212,6 +220,7 @@ Initial release: a cross-session global task library, a floating panel with
 status/delete/split controls, subagent job-status sync, and the generative-UI
 `surface` renderer.
 
+[0.2.10]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.6...v0.2.7

@@ -422,6 +422,25 @@ rows.delete('stale-1')
   check('adopts an unstamped copy that is already current', readFileSync(skillPath, 'utf8') === seeded)
   check('adoption writes no sidecar', !existsSync(sidecarPath))
 
+  // An install that predates the marker AND is several releases old: the body is
+  // one this package shipped before, so it is provably ours and gets migrated.
+  // Without that, the users a fix most needs to reach are mistaken for editors.
+  const superseded = '# a body this package shipped in an earlier release\n'
+  host.SUPERSEDED_SEED_DIGESTS.add(digestOf(superseded))
+  writeFileSync(skillPath, superseded)
+  applyAgain()
+  check('migrates a pre-marker copy this package shipped', readFileSync(skillPath, 'utf8') === seeded)
+  check('migration writes no sidecar', !existsSync(sidecarPath))
+  host.SUPERSEDED_SEED_DIGESTS.delete(digestOf(superseded))
+
+  // The list is only useful if it holds the bodies we actually released.
+  check('the superseded list holds the released 0.1.x body',
+    host.SUPERSEDED_SEED_DIGESTS.has('c13d545ff820efea1484373865b7a7aa3683bd2266a0ac7fe749d499ee979d47'))
+  check('the superseded list holds the released 0.2.0 body',
+    host.SUPERSEDED_SEED_DIGESTS.has('350871398ff35c522ecb8243edbd26d174b6247ee59654fefb472d0bd581606b'))
+  check('the superseded list holds the released 0.2.2 body',
+    host.SUPERSEDED_SEED_DIGESTS.has('406653ee99d571b05ef308380c91e030bb93fa66a67eefa0a52daecd57876d04'))
+
   // A hand-edited file has no valid marker. Leave it, offer the new text beside.
   writeFileSync(skillPath, '# my own manual\n')
   applyAgain()

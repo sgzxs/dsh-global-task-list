@@ -284,6 +284,43 @@ function digestOf(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex')
 }
 
+/**
+ * Digest for seed comparisons, with line endings normalised.
+ *
+ * A copy written by this plugin has LF endings, but it may have passed through
+ * an editor or a checkout since; normalising means a CRLF copy still matches the
+ * digest we recorded for it.
+ * @param text - the skill body.
+ * @returns its sha256 over LF-normalised text.
+ */
+function seedDigest(text: string): string {
+  return digestOf(text.replace(/\r\n/g, '\n'))
+}
+
+/**
+ * Bodies this package shipped in `skills/task-ui/SKILL.md` and has since
+ * replaced, newest first.
+ *
+ * These exist to recognise an **unstamped** copy as ours. Installations seeded
+ * before the marker existed — every installation older than 0.2.8 — carry no
+ * proof of provenance, and an old one's body does not match the current text
+ * either, so without this list they would be indistinguishable from a
+ * hand-edited file and would never be updated: exactly the users a fix should
+ * reach. A digest here is proof the file is byte-for-byte what we shipped.
+ *
+ * Exported so the test can assert the real digests and exercise the branch; the
+ * values are the sha256 of each released body, taken from this repository's own
+ * history.
+ */
+export const SUPERSEDED_SEED_DIGESTS = new Set<string>([
+  // 0.1.1 – 0.1.5: the original skill, 6,762 bytes. What most old installs have.
+  'c13d545ff820efea1484373865b7a7aa3683bd2266a0ac7fe749d499ee979d47',
+  // 0.2.0: nextStep documented, 10,904 bytes.
+  '350871398ff35c522ecb8243edbd26d174b6247ee59654fefb472d0bd581606b',
+  // 0.2.2: the completion form corrected, 11,325 bytes.
+  '406653ee99d571b05ef308380c91e030bb93fa66a67eefa0a52daecd57876d04',
+])
+
 /** This package's own version, as installed — recorded in the marker so a user can see what seeded their copy. */
 function packageVersion(): string {
   try {
@@ -308,12 +345,13 @@ function packageVersion(): string {
  * each activation:
  *
  * - absent → seed it;
- * - present and the marker matches its own digest → **nobody has edited it**, so
- *   replace it with this version's text;
- * - present but unstamped or edited → leave it exactly as it is and drop this
- *   version's text beside it as `SKILL.md.new`, with a log line naming both
- *   paths. A hand-edited skill is the user's, and an install must never silently
- *   eat it.
+ * - marker matches its own digest → **nobody has edited it**, so replace it with
+ *   this version's text;
+ * - unstamped but a body this package shipped (`SUPERSEDED_SEED_DIGESTS`) or the
+ *   current body → also ours, so adopt it or bring it forward;
+ * - otherwise → leave it exactly as it is and drop this version's text beside it
+ *   as `SKILL.md.new`, with a log line naming both paths. A hand-edited skill is
+ *   the user's, and an install must never silently eat it.
  *
  * Fail-soft: any error only logs and never blocks plugin load.
  */
@@ -327,7 +365,7 @@ function installBundledSkill(): void {
     const dir = join(dshHome, 'skills', 'task-ui')
     const dest = join(dir, 'SKILL.md')
     const body = readFileSync(src, 'utf8')
-    const stamped = `<!-- dsh-global-task-list seed ${packageVersion()} sha256=${digestOf(body)} -->\n${body}`
+    const stamped = `<!-- dsh-global-task-list seed ${packageVersion()} sha256=${seedDigest(body)} -->\n${body}`
 
     if (!existsSync(dest)) {
       mkdirSync(dir, { recursive: true })
@@ -340,8 +378,7 @@ function installBundledSkill(): void {
     if (current === stamped) return
 
     const marker = SEED_MARKER.exec(current)
-    const ours = marker !== null && digestOf(current.slice(marker[0].length)) === marker[2]
-    if (ours) {
+    if (marker !== null && seedDigest(current.slice(marker[0].length)) === marker[2]) {
       writeFileSync(dest, stamped)
       console.log(`[task-ui] updated seeded skill ${marker[1]} -> ${packageVersion()}`)
       return
@@ -351,17 +388,28 @@ function installBundledSkill(): void {
     // that predates the marker looks like this. Adopt it — the marker is the only
     // thing written, so no instruction text changes and no edit can be lost —
     // which is what lets it update itself from here on.
-    if (marker === null && current === body) {
+    if (marker === null && seedDigest(current) === seedDigest(body)) {
       writeFileSync(dest, stamped)
       console.log('[task-ui] adopted the existing skill copy (body already current); it updates in place from now on')
       return
     }
 
-    // Unstamped (an older version of this plugin seeded it) or edited by hand:
-    // never clobber. Offer the new text alongside and say so once.
+    // Unstamped and carrying a body this package shipped in an earlier release:
+    // provably ours and unmodified, so bring it forward. Without this, everyone
+    // who installed before 0.2.8 — the users a fix most needs to reach — would be
+    // mistaken for someone who edited the file by hand.
+    if (marker === null && SUPERSEDED_SEED_DIGESTS.has(seedDigest(current))) {
+      writeFileSync(dest, stamped)
+      console.log(`[task-ui] migrated a pre-marker seeded skill (${seedDigest(current).slice(0, 10)}) -> ${packageVersion()}`)
+      return
+    }
+
+    // Unstamped and unrecognised, or stamped with a body that no longer matches
+    // its own digest: treat it as the user's and never clobber. Offer the new
+    // text alongside and say so.
     const sidecar = `${dest}.new`
     if (!existsSync(sidecar) || readFileSync(sidecar, 'utf8') !== stamped) writeFileSync(sidecar, stamped)
-    console.log('[task-ui] left the existing skill in place (not seeded by this version, or edited); newer copy at', sidecar)
+    console.log('[task-ui] left the existing skill in place (edited, or not a copy this package seeded); newer copy at', sidecar)
   } catch (error) {
     console.log('[task-ui] skill install error:', String(error))
   }
