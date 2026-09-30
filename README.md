@@ -141,6 +141,10 @@ Six tool schemas plus their descriptions are injected into the system-prompt too
 
 Independent of the agent's request-context assembly. The tool schemas and the prompt section are static, so the prompt prefix is stable across requests; task-list content does not enter the prompt. A plugin version change (or toggling `promptSection`) replaces the section, or the tool schemas, and invalidates reuse.
 
+## Design notes
+
+**Tasks are session-independent by design.** The record deliberately does not name the session that created it or last touched it, and no field ties an entry to a conversation. The library exists so that work hands off seamlessly: any session — a later one, a different preset, a subagent — picks an entry up and continues, and what it needs is *what is true now* and *what to do next*, both of which the record carries (`progress`, `steps`, `nextStep`). Recording an origin would make every entry an artifact of the conversation that produced it, which is the opposite of the point; it would also invite a later session to defer to an owner that no longer exists. This is why `task_get` leads with state rather than history, and why nothing has to be rewritten when a task outlives the session it started in.
+
 ## Known Limitations and Deferred Work
 
 - **No graph layout** — the `dag` surface renders nodes as chips plus an edges list, not a positioned graph.
@@ -149,7 +153,7 @@ Independent of the agent's request-context assembly. The tool schemas and the pr
 - **Job-status sync degrades, never blocks** — a runtime exposing neither `jobs.events.subscribe` nor `jobs.onJobsChanged` keeps the tools, the panel, and the HTTP API, and logs `jobs service exposes no change feed; job status sync disabled`.
 - **The prompt section cannot force the behaviour** — descriptions and one sentence raise the odds that the model records its work; nothing in the harness compels it. A deployment that needs a guarantee should say so in its own persona or preset instructions, which outrank a plugin's contribution.
 - **Skill updates need a manual refresh** — the Host half seeds `skills/task-ui/SKILL.md` into `<dshHome>/skills/task-ui/` only when that file is absent, so it never clobbers a user's edits; a plugin upgrade therefore does not update an already-seeded copy.
-- **Provenance is not recorded** — a task does not carry the session that created it or last touched it, so a later session can read *what* is true but not *who* established it. `dependsOn` covers task-to-task blocking; a reason that is not another task ("waiting on an external service") has only `nextStep` to live in.
+- **Blocked reasons have no field of their own** — `dependsOn` covers task-to-task blocking; a reason that is not another task ("waiting on an external service") has only `nextStep` to live in.
 - **A `running` task linked to a job is flagged, not corrected** — the job registry is in-process, so a `jobId` written before the running Host started cannot refer to anything alive. Both read paths say so: `task_list` appends `[expired]`, `task_get` leads with a `warning:` line, and the panel colours the job line with `--dsw-alias-state-warn-primary`. The record is *annotated* rather than rewritten, because the plugin cannot know whether the work finished, was abandoned, or is simply unrecorded. The signal is the task's own `updatedAt` compared against Host start (`jobs` exposes no call that enumerates every owner's jobs), so a write after boot clears the flag — a false negative if a session sets `running` by hand on a task that still carries an old `jobId`.
 
 ## Acknowledgements
