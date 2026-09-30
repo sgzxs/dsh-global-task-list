@@ -4,6 +4,20 @@ Notable changes per release, newest first. The DSH peer range is this package's
 compatibility contract: a `0.1.x` release does not install on a `0.2.x` runtime,
 and the runtime rejects it before pnpm runs.
 
+## [0.2.4] — 2026-09-30
+
+### Fixed
+
+- **A reload that collided with the previous instance could still take the app down.** 0.2.3 made the storage-domain open survive `already-open`, but the same window produces other collisions of the same kind: `WebServer.register` throws on a duplicate `(kind, path)` — the host reports it as `webserver: duplicate prefix route "/task-ui"` — and `Tools.register` fails on a duplicate name within one layer. The crash log says what a synchronous throw out of `apply()` means: `dsh: fatal load failure`, and the application exits.
+
+  Every scope-global registration the plugin makes — the two HTTP routes, the prompt section, and all six tools — is now acquired through one tolerant path. It retries that class of failure (the storage facility's `already-open`, or the web server's duplicate-route error) with a short backoff, and each disposer is owned by the plugin's own `ctx.effect`, which is what actually releases the name. When a resource never frees, the plugin logs it and stays loaded but degraded: a panel without its HTTP API is a far better outcome than an application that will not start.
+
+- Live SSE streams are ended when the plugin is disposed, so a browser's `EventSource` is not left waiting on a channel that nothing will ever write to.
+
+### Added
+
+- `test/host-smoke.mjs` drives the collision path directly: with two injected duplicate-route throws, both routes must still be acquired, and disposing the plugin must free the prefix route.
+
 ## [0.2.3] — 2026-09-30
 
 ### Fixed
@@ -152,6 +166,7 @@ Initial release: a cross-session global task library, a floating panel with
 status/delete/split controls, subagent job-status sync, and the generative-UI
 `surface` renderer.
 
+[0.2.4]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.0...v0.2.1

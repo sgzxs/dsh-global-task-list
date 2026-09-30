@@ -304,6 +304,70 @@ function domainErrorCode(error: unknown): string | undefined {
 }
 
 /**
+ * Whether a failure means another instance of this plugin still holds a shared
+ * resource, rather than a genuine misconfiguration.
+ *
+ * Two shapes, one cause: the storage facility's `already-open` ("the name is
+ * open **or still closing**") and the web server's `duplicate <kind> route
+ * "<path>"`. Both mean the previous instance's teardown has not finished yet.
+ * @param error - the caught failure.
+ * @returns true when the resource may free itself shortly.
+ */
+function isResourceContention(error: unknown): boolean {
+  if (domainErrorCode(error) === 'already-open') return true
+  const message = error instanceof Error ? error.message : ''
+  return message.includes('duplicate') && message.includes('route')
+}
+
+/**
+ * Take a process-global resource, tolerating the window in which a previous
+ * instance of this plugin still holds it.
+ *
+ * A host reloads plugins without awaiting the old instance's disposal, so a
+ * toggle re-runs `apply()` while the old routes and domain are still held. Both
+ * `WebServer.register` and `DomainFacility.open` reject a collision by
+ * **throwing**, and the crash log is unambiguous about the consequence: a
+ * synchronous throw out of `apply()` is `dsh: fatal load failure`, which takes
+ * the whole application down. So this retries that one class of failure and, if
+ * the resource never frees, reports it and carries on with the plugin loaded but
+ * degraded — a panel without its HTTP API is a far better outcome than an app
+ * that will not start.
+ *
+ * The disposer is owned by our own `ctx.effect`: that is what actually releases
+ * the resource, and leaving it to the host's asynchronous teardown is precisely
+ * what makes the next instance collide in the first place.
+ * @param ctx - plugin context that owns the resource's lifetime.
+ * @param label - resource name, used for the disposer label and the give-up log.
+ * @param acquire - performs the registration and returns its disposer.
+ * @param attempts - how many times to retry a contended acquisition.
+ */
+function acquireTolerantly(ctx: Context, label: string, acquire: () => () => void, attempts = 8): void {
+  let release: (() => void) | undefined
+  let cancelled = false
+  ctx.effect(() => () => {
+    cancelled = true
+    release?.()
+  }, `task-ui: release ${label}`)
+
+  const attempt = (remaining: number): void => {
+    try {
+      const disposer = acquire()
+      // Disposed while this acquisition was retrying: release immediately rather
+      // than leave the resource held by a plugin that is already gone.
+      if (cancelled) disposer()
+      else release = disposer
+    } catch (error) {
+      if (remaining > 0 && isResourceContention(error)) {
+        setTimeout(() => { attempt(remaining - 1) }, 50)
+        return
+      }
+      console.log(`[task-ui] ${label} unavailable:`, String(error))
+    }
+  }
+  attempt(attempts)
+}
+
+/**
  * Open the task domain, tolerating the one transient failure its lifecycle
  * defines.
  *
@@ -322,7 +386,7 @@ async function openTaskDomain(ctx: Context, spec: typeof domainSpec) {
     try {
       return await ctx.storageDomain.open(spec)
     } catch (error) {
-      if (attempt >= attempts || domainErrorCode(error) !== 'already-open') throw error
+      if (attempt >= attempts || !isResourceContention(error)) throw error
       // Teardown is short; back off just enough for it to finish.
       await new Promise((resolve) => { setTimeout(resolve, 25 * attempt) })
     }
@@ -450,7 +514,7 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   // ---- HTTP API for the client panel (same-origin fetch + poll) ----
-  ctx.webServer.register({
+  acquireTolerantly(ctx, 'the /task-ui HTTP API', () => ctx.webServer.register({
     kind: 'prefix',
     path: '/task-ui',
     handler: async (req, res) => {
@@ -510,7 +574,7 @@ export function apply(ctx: Context, config: Config): void {
         return sendJson(res, 500, { error: String(error) })
       }
     },
-  })
+  }))
 
   // ---- SSE push for the client panel ----
   // /task-ui/events: Server-Sent Events channel. The panel subscribes here
@@ -531,7 +595,7 @@ export function apply(ctx: Context, config: Config): void {
     res.on('close', () => { connections.delete(res) })
   }
 
-  ctx.webServer.register({
+  acquireTolerantly(ctx, 'the /task-ui/events SSE channel', () => ctx.webServer.register({
     kind: 'exact',
     path: '/task-ui/events',
     handler: (req, res) => {
@@ -544,7 +608,16 @@ export function apply(ctx: Context, config: Config): void {
       }
       connect(res)
     },
-  })
+  }))
+
+  // A disposed plugin that keeps an EventSource open leaves the panel waiting on
+  // a channel nothing will ever write to, so end live streams with the plugin.
+  ctx.effect(() => () => {
+    for (const res of connections) {
+      try { res.end() } catch { /* the socket may already be gone */ }
+    }
+    connections.clear()
+  }, 'task-ui: close live SSE streams')
 
   ctx.on('domain/changed', (change) => {
     // Only the task_ui domain drives panel refreshes; every durable write
@@ -570,18 +643,29 @@ export function apply(ctx: Context, config: Config): void {
   // is expected to maintain on its own — so it also gets one always-on sentence,
   // silenced wherever the tools are not actually callable in that scope.
   if (config.promptSection) {
-    ctx.systemPrompt.section({
+    acquireTolerantly(ctx, 'the task-ui prompt section', () => ctx.systemPrompt.section({
       name: 'task-ui:library',
       order: ctx.systemPrompt.getSectionOrder('TOOL_SUBAGENT'),
       text: (assembly) => {
         if (ctx.tools.get('task_add', assembly.scope) === undefined) return ''
         return assembly.agent?.session.header.origin === 'subagent' ? PROMPT_SECTION_SUBAGENT : PROMPT_SECTION
       },
-    })
+    }))
   }
 
   // ---- model-facing tools ----
-  ctx.tools.register(defineTool({
+  //
+  // Every registration from here on is tolerantly acquired for the same reason
+  // the routes are: each one is a scope-global name, so a reload that lands
+  // before the previous instance released it collides, and a synchronous throw
+  // out of apply() is a fatal load failure. Retrying recovers the tool as soon
+  // as the old fiber finishes; the alternative is a plugin that took the app
+  // down to avoid a name clash.
+  const registerTool = (definition: Parameters<typeof ctx.tools.register>[0]): void => {
+    acquireTolerantly(ctx, `the ${definition.name} tool`, () => ctx.tools.register(definition))
+  }
+
+  registerTool(defineTool({
     name: 'taskui_probe',
     description: 'Report the task-library plugin\'s host status and the current task count.',
     parameters: {},
@@ -592,7 +676,7 @@ export function apply(ctx: Context, config: Config): void {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  registerTool(defineTool({
     name: 'task_list',
     description: 'List every task in the global task library as one triage line each: `- [status] title (id[, job=...]) — next: ...`. Read it before creating entries so you do not duplicate one, whenever the state may have moved (the user, another session, or a subagent can all change it), and when you pick up work recorded earlier. Then call `task_get` for the one task you are about to work on: the list is deliberately short, and the full record lives there.',
     parameters: {},
@@ -610,7 +694,7 @@ export function apply(ctx: Context, config: Config): void {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  registerTool(defineTool({
     name: 'task_get',
     description: 'Read ONE task from the global task library in full: what it is, where it stands, and how to continue — description, progress, the whole step flow, next step, dependencies, linked job, and timestamps. Call it before continuing work another session or an earlier turn started, so you resume from what is actually recorded instead of re-deriving it.',
     parameters: {
@@ -624,7 +708,7 @@ export function apply(ctx: Context, config: Config): void {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  registerTool(defineTool({
     name: 'task_add',
     description: 'Record a task in the global task library — a persistent list shared across sessions and drawn in the user\'s panel — to plan multi-step work and show progress; skip it for trivial single-step requests. Create the entry BEFORE you start the work, and always before delegating it to a subagent. Fill `description`, `progress` and `steps` on creation: `progress` is where it stands now, `nextStep` what happens next, and `steps` is the ordered `[{ text, state }]` flow the panel draws (state `done` / `current` / `next` / `todo`). Never create a title-only entry.',
     parameters: {
@@ -667,7 +751,7 @@ export function apply(ctx: Context, config: Config): void {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  registerTool(defineTool({
     name: 'task_update',
     description: 'Advance one task in the global task library. While the task is in flight, keep its `progress` and `steps` current — mark finished steps `done`, the live one `current`, the next one `next` — and rewrite `nextStep`; an entry that never moves is worse than none. When you delegate the task to a subagent, link the spawned job with `jobId` and set status `running`, and its terminal status follows that job automatically. Mark it `done` as soon as it is finished.',
     parameters: {
@@ -715,7 +799,7 @@ export function apply(ctx: Context, config: Config): void {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  registerTool(defineTool({
     name: 'task_delete',
     description: 'Delete one task from the global task library. Prefer marking a task `done` or `blocked` over deleting it: the library is the record of what was already done, and the user may still want that history.',
     parameters: {

@@ -226,5 +226,65 @@ const refreshed = await byName.task_get.execute({ id: 'stale-1' })
 check('a post-boot write clears the warning', !refreshed.text.includes('warning:'))
 rows.delete('stale-1')
 
+// ---- route contention: the "enable" failure ----
+// A host reloads plugins without awaiting the previous instance's disposal, and
+// the web server rejects a duplicate (kind, path) by THROWING. A synchronous
+// throw out of apply() is `dsh: fatal load failure` and takes the app down, so
+// the routes are acquired tolerantly: retried past the collision, with the
+// disposer owned by our own effect.
+{
+  const held = new Set()
+  const acquired = []
+  const disposers2 = []
+  let pendingFailures = 2
+
+  const contendedCtx = {
+    effect: (callback, label) => {
+      const dispose = callback()
+      if (typeof dispose === 'function') disposers2.push({ label: label ?? '(unlabelled)', dispose })
+      return dispose
+    },
+    on: () => {},
+    tools: { register: () => () => {}, get: () => undefined },
+    systemPrompt: { getSectionOrder: () => 2800, section: () => () => {} },
+    storageDomain: { open: async () => ({ table: () => table, close: async () => {} }) },
+    webServer: {
+      register: (route) => {
+        const key = `${route.kind} ${route.path}`
+        // The previous instance still owns the path: exactly what the crash
+        // report showed as `duplicate prefix route "/task-ui"`.
+        if (pendingFailures > 0) {
+          pendingFailures -= 1
+          throw new Error(`webserver: duplicate ${route.kind} route "${route.path}"`)
+        }
+        if (held.has(key)) throw new Error(`webserver: duplicate ${route.kind} route "${route.path}"`)
+        held.add(key)
+        acquired.push(key)
+        return () => { held.delete(key) }
+      },
+    },
+    jobs: { events: { subscribe: () => () => {} } },
+    agents: { list: () => [] },
+  }
+
+  // Reaching the next line at all is the first assertion: apply() must not
+  // propagate the throw, because the host treats that as fatal.
+  host.apply(contendedCtx, {
+    promptSection: true,
+    jobStatusMap: { running: 'running', stopping: 'running', completed: 'done', killed: 'blocked', failed: 'failed' },
+  })
+  check('a contended route does not throw out of apply()', true)
+
+  await new Promise((resolve) => { setTimeout(resolve, 600) })
+  console.log(`routes after contention : ${JSON.stringify(acquired)}`)
+  check('both routes were acquired after retrying', acquired.length === 2)
+
+  const releaseApi = disposers2.find((entry) => entry.label.includes('/task-ui HTTP API'))
+  check('the route disposer is owned by our own effect', releaseApi !== undefined)
+  releaseApi?.dispose()
+  check('disposing frees the prefix route', !held.has('prefix /task-ui'))
+  check('live SSE streams are closed on dispose', disposers2.some((entry) => entry.label.includes('close live SSE streams')))
+}
+
 console.log(failures === 0 ? '\nHOST: PASS' : `\nHOST: FAIL (${failures})`)
 process.exit(failures === 0 ? 0 : 1)
