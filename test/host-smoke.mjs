@@ -113,7 +113,13 @@ check('expected tool names', JSON.stringify(names) === JSON.stringify(['task_add
 check('prompt section registered', section?.name === 'task-ui:library')
 check('section placed at a named order', sections[0]?.orderName === 'TOOL_SUBAGENT')
 check('section text is non-empty in a scope with the tools', typeof sectionText('scope') === 'string' && sectionText('scope').length > 40)
-check('section text tells the model when to skip', sectionText('scope').includes('skip it'))
+// The boundary must be decidable. "one-shot answers" let a model file a repo
+// analysis under "one exchange, so skip it"; the SHAPE of the request is what it
+// has to key on instead.
+check('section states a decidable skip boundary', sectionText('scope').includes('without looking anything up'))
+check('section names analysis as multi-step', sectionText('scope').includes('count as multi-step'))
+check('section lets a late start still record', sectionText('scope').includes('Already started'))
+check('section drops the one-shot escape hatch', !sectionText('scope').includes('one-shot'))
 check('section is silent in a scope without the tools', (() => {
   const saved = tools.splice(0, tools.length)
   const silent = sectionText('scope', undefined)
@@ -132,7 +138,9 @@ check('subagent is not told to create tasks', !subagentText.includes('task_add')
 check('subagent is not told to delegate', !subagentText.includes('delegating'))
 check('subagent is told to update progress', subagentText.includes('progress') && subagentText.includes('task_update'))
 
-check('task_add description states the skip boundary', byName.task_add.description.includes('skip it for trivial'))
+check('task_add description states the same skip boundary', byName.task_add.description.includes('without looking anything up'))
+check('task_add description covers a late start', byName.task_add.description.includes('already started'))
+check('task_add description drops the one-shot escape hatch', !byName.task_add.description.includes('one-shot'))
 check('task_add description states the delegation moment', byName.task_add.description.includes('before delegating'))
 check('task_add requires the flow fields', byName.task_add.description.includes('steps'))
 check('task_update description covers job linking', byName.task_update.description.includes('jobId'))

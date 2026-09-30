@@ -148,7 +148,7 @@ export const Config: Schema<Config> = Schema.object({
  * guidance first is the right order — and because resolving that named slot
  * keeps the placement right if the harness ever moves it.
  */
-const PROMPT_SECTION = 'Record multi-step work in the global task library with `task_add` before starting it — and always before delegating it to a subagent — keep the entry current with `task_update` as you work, and read it back with `task_get` before continuing anything an earlier session started; skip it for one-shot answers and trivial edits.'
+const PROMPT_SECTION = 'Record multi-step work in the global task library with `task_add` before starting it — always before delegating it to a subagent — keep it current with `task_update` as you work, and read it back with `task_get` before continuing what an earlier session started. Analyze/investigate/compare/implement/review requests, and anything the user calls a task, all count as multi-step; only a reply you can give without looking anything up is too small to record. Already started? Record it now.'
 
 /**
  * The subagent variant. A subagent does not plan, delegate, or own the library:
@@ -710,7 +710,7 @@ export function apply(ctx: Context, config: Config): void {
 
   registerTool(defineTool({
     name: 'task_add',
-    description: 'Record a task in the global task library — a persistent list shared across sessions and drawn in the user\'s panel — to plan multi-step work and show progress; skip it for trivial single-step requests. Create the entry BEFORE you start the work, and always before delegating it to a subagent. Fill `description`, `progress` and `steps` on creation: `progress` is where it stands now, `nextStep` what happens next, and `steps` is the ordered `[{ text, state }]` flow the panel draws (state `done` / `current` / `next` / `todo`). Never create a title-only entry.',
+    description: 'Record a task in the global task library — a persistent list shared across sessions and drawn in the user\'s panel — to plan multi-step work and show progress. Create the entry BEFORE you start the work, and always before delegating it to a subagent; if you have already started, create it now rather than not at all. Analyze, investigate, compare, implement, and review requests — and anything the user calls a task — count as multi-step; only skip a reply you can give without looking anything up. Fill `description`, `progress` and `steps` on creation: `progress` is where it stands now, `nextStep` what happens next, and `steps` is the ordered `[{ text, state }]` flow the panel draws (state `done` / `current` / `next` / `todo`). Never create a title-only entry.',
     parameters: {
       title: { type: 'string', required: true, description: 'Task title.' },
       description: { type: 'string', description: 'Optional description.' },

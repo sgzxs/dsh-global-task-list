@@ -4,6 +4,16 @@ Notable changes per release, newest first. The DSH peer range is this package's
 compatibility contract: a `0.1.x` release does not install on a `0.2.x` runtime,
 and the runtime rejects it before pnpm runs.
 
+## [0.2.5] — 2026-10-01
+
+### Changed
+
+- **The skip boundary is now a shape test, not a length test.** Both the always-on prompt section and the `task_add` description said to skip "trivial single-step requests" / "one-shot answers", and a repository analysis walks straight through that: "analyze X" is one exchange producing one deliverable, so skipping it was a *defensible* reading of the rule. That is how a user's "给你一个任务：分析 `<repo>`" produced no entry — the rule, not the model, was wrong.
+
+  The boundary now names the shapes that count — analyze / investigate / compare / implement / review, and anything the user calls a task — and keeps exactly one exemption: a reply you can give without looking anything up. It also states that a late entry beats no entry, because "before you start" is the moment a model is least likely to pause.
+
+  The bundled skill states the same boundary and records the case that motivated it, so the three surfaces that carry the obligation (section, tool description, skill) agree.
+
 ## [0.2.4] — 2026-09-30
 
 ### Fixed
@@ -166,6 +176,7 @@ Initial release: a cross-session global task library, a floating panel with
 status/delete/split controls, subagent job-status sync, and the generative-UI
 `surface` renderer.
 
+[0.2.5]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.1...v0.2.2
