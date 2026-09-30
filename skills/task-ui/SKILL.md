@@ -64,20 +64,72 @@ whenToUse: "Task UI 模式：设计/管理/可视化任务，或创建/更新任
 
 界面右下角有一个**常驻任务面板**（Task UI panel），显示全局任务库的内容。任务库工具：
 
-- `task_add(title, description?, parentId?, dependsOn?, surface?, progress?)` — 新建任务（初始 status=pending）
-- `task_list()` — 列出全部任务（含 id/status/jobId）
-- `task_update(id, title?/status?/description?/parentId?/dependsOn?/surface?/progress?/jobId?)` — 更新任务
+- `task_add(title, description?, nextStep?, steps?, parentId?, dependsOn?, surface?, progress?)` — 新建任务（初始 status=pending）
+- `task_list()` — 列出全部任务（每条一行：状态、标题、id、job、下一步）
+- `task_get(id)` — **读一个任务的完整记录**：描述、进度、完整流程、下一步、依赖、job、时间戳
+- `task_update(id, title?/status?/description?/nextStep?/steps?/parentId?/dependsOn?/surface?/progress?/jobId?)` — 更新任务
 - `task_delete(id)` — 删除任务
 
-任务跨 session 持久。**创建每个任务时（task_add），必须同时填 `description` 和 `progress`，不允许只给 `title`**——否则下一个 session 无法理解这个任务是什么、做到哪了：
+任务跨 session 持久。**创建每个任务时（task_add），必须同时填 `description`、`progress` 和 `steps`，不允许只给 `title`**——否则下一个 session 无法理解这个任务是什么、做到哪了、接下来做什么：
 
 - `description`（**必填**）— 一句话说清这个任务要做什么
 - `progress`（**必填**）— `{ text, percent? }`，`text` 用一句话写"当前做到哪一步"，`percent` 可选（0-100）；新建未开始的任务用 `{ text: "尚未开始", percent: 0 }`
+- `steps`（**必填**）— 面板详情里**流程图**的数据：`[{ text, state }]` 有序数组，
+  `state` 取 `done` / `current` / `next` / `todo`。面板用不同标框区分：
+  `done`（已完成）与 `todo`（待办）用**常规标框**，`current`（当前进度）用**品牌色实线标框**，
+  `next`（下一步）用**虚线标框**——一眼看出"做到哪、正在做什么、接着做什么"。
+  **至少给 2 步**（一个 `current` + 一个 `next`）；确实只有一步的任务才可以只给 1 步。
+- `nextStep`（**必填**）— 一句话写"下一步要做什么"，与 `steps` 里的 `next` 节点一致
 - `surface`（可选）— 生成式 UI 文档（复杂任务用它展示结构化进度，见上文组件目录）
 
-**反例（禁止）**：`task_add({ title: "做某事" })` —— 缺 description 和 progress。正确做法是 `task_add({ title: "做某事", description: "具体要做什么", progress: { text: "尚未开始", percent: 0 } })`。
+**反例（禁止）**：`task_add({ title: "做某事" })` —— 缺 description、progress 和 steps。
+正确做法是 `task_add({ title: "做某事", description: "具体要做什么", nextStep: "第一步做什么", progress: { text: "尚未开始", percent: 0 }, steps: [{ text: "第一步做什么", state: "current" }, { text: "第二步做什么", state: "next" }] })`。
+
+**为什么 `steps` 是必填**：面板无法凭空编造历史——它只能画任务里真实存在的东西。
+只填 `progress` 时，详情卡片会退化成一个孤零零的"当前"节点，并在下面标注
+"未提供流程，仅显示当前进度"。看到这行提示就说明是你漏填了 `steps`，**立即用 `task_update` 补上**。
+
+**流程图怎么写**：把任务拆成 3-6 步，做完的标 `done`，正在做的标 `current`，紧接着的标 `next`，
+其余标 `todo`。每推进一步就更新：刚做完的 `current` 改成 `done`，原来的 `next` 改成 `current`，
+再补一个新的 `next`。
+
+```json
+"steps": [
+  { "text": "读取 schema 并确认字段", "state": "done" },
+  { "text": "写入 storage 并验证", "state": "done" },
+  { "text": "对照算子支持表评估兼容性", "state": "current" },
+  { "text": "输出量化部署方案", "state": "next" },
+  { "text": "烧录到设备验证", "state": "todo" }
+]
+```
+
+`steps` 为空时，面板会退化成用 `progress` + `nextStep` 拼出的流程；若 `steps` 里没有
+任何 `next`，面板会把 `nextStep` 追加成下一步。这两种情况都只是兜底，不要依赖。
 
 当你在面板上看到某个任务**没有进度条**时，那是你（或创建它的 agent）漏填了 `progress`——立即用 `task_update` 补上。
+
+### 接手已有任务（跨 session 交接）
+
+任务库是**跨 session 共享**的，所以你很可能会接手别的 session（或更早的你自己）留下的任务。
+这时**不要凭猜测继续**，按这个顺序读：
+
+1. `task_list()` —— 一行一个任务，带状态和 `next`，先做筛选；
+2. `task_get(id)` —— 对你**真正要动手**的那个任务读全量记录。里面按重要性排列：
+   - `description`：这个任务要做什么（含之前的发现，例如文件的真实格式、踩过的坑）
+   - `progress`：当前做到哪一步（带 percent）
+   - `steps`：完整流程，`[done]/[current]/[next]/[todo]` 标出已完成、正在做、接着做、还没做
+   - `next`：下一步具体做什么
+   - `depends on` / `parent`：依赖关系
+   - `job`：关联的后台任务 id。**如果这里写着 `[expired]` / `warning: ... no longer exists`**，
+     说明这个 job 是上一次运行留下的、现在已经不存在了，**`running` 状态不可信**——先自己确认
+     实际情况（看 `updated` 时间、看产物），再决定是继续、改成 done 还是重开。
+   - `created` / `updated`：**判断记录新鲜度的关键**——`updated` 很久没动却是 running，就要怀疑是否真的还在跑
+3. 按记录的 `next` 继续；**推进过程中随时 `task_update`**（progress / steps / nextStep）。
+   如果你发现记录与实际不符（例如记录说在用 TFL3 解析，但文件其实已经换版本了），
+   **先把记录改对，再继续**——否则下一个接手的人会被你的旧记录误导。
+
+这套顺序的意义在于：任务库的存储字段很全，但 `task_list` 是刻意保持短的一行；
+**完整信息只能通过 `task_get` 拿到**，所以「列表筛选 → 单个读全量」是标准读法。
 
 ### 多 subagent 监督工作流（核心约定）
 
@@ -89,8 +141,9 @@ whenToUse: "Task UI 模式：设计/管理/可视化任务，或创建/更新任
    把任务与 subagent 关联——之后该任务的**终态**会随 job 生命周期自动同步
    （completed→done、failed→failed、killed→blocked），无需手动改终态。
 4. **在 spawn 子 agent 的 prompt 里明确告知它的任务 id**，并指示它：
-   做完关键里程碑时调用 `task_update(任务id, { progress: { text: "...", percent: N } })`
-   更新进度，完成时调用 `task_update(任务id, { status: "done", description: "补充完成说明" })`。
+   做完关键里程碑时调用 `task_update(任务id, { progress: { text: "...", percent: N }, nextStep: "下一步...", steps: [...] })`
+   更新进度、下一步与流程图，完成时调用
+   `task_update(任务id, { status: "done", description: "补充完成说明", nextStep: "", steps: [] })`。
    （`task_*` 是全局工具，subagent 也能调用。）
 5. 用户在面板上点击状态按钮是**手动覆盖**（如标记 blocked），不要与用户的覆盖冲突。
 6. 用户点击面板的「拆分」按钮会以一条用户消息进入会话——把它当作用户的明确请求处理：

@@ -92,12 +92,29 @@ export type TaskSurfaceNode =
   | TaskSurfaceDag
   | TaskSurfaceDisclosure
 
+/** Flow-node state: which frame the detail flow paints for one step. */
+export type TaskStepState = 'done' | 'current' | 'next' | 'todo'
+
+/**
+ * One step of a task's flow view. `done` and `todo` share the plain frame;
+ * `current` and `next` each get their own, so one glance finds both the live
+ * step and what happens after it.
+ */
+export interface TaskStep {
+  text: string
+  state: TaskStepState
+}
+
 /** One task row as served by GET /task-ui/tasks (Host schema). */
 export interface TaskItem {
   id: string
   title: string
   status: TaskStatus
   description: string
+  /** Next action for this task; empty string when the owner set none. */
+  nextStep: string
+  /** Ordered flow steps; empty when the owner set none (the panel derives one). */
+  steps: TaskStep[]
   parentId: string | null
   dependsOn: string[]
   /** Optional generative-UI document rendered under the task card. */
@@ -105,6 +122,12 @@ export interface TaskItem {
   /** Optional coarse progress: a label plus an optional 0..100 percent. */
   progress: TaskProgress | null
   jobId: string | null
+  /**
+   * Host-derived: the linked job was created before the running Host started, so
+   * it cannot still exist and a `running` status is unverified. Absent on
+   * payloads from a Host that predates the field.
+   */
+  jobStale?: boolean
   createdAt: number
   updatedAt: number
 }

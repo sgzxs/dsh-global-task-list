@@ -1,20 +1,45 @@
 /* dsh-global-task-list task panel — a `conversation.input.dock` occupant: a
    fixed bottom-right floating panel (session-scoped, so it naturally hides on
    the trajectory view), plus the recursive task-surface document renderer
-   below each card. Tokens only (--dsw-alias-* semantic aliases + theme motion
-   variables); the five task-status hues are component-local custom properties
-   mapped onto the theme's semantic state tokens (there is no one-to-one
-   official status token) — that local block is the status-token contract. */
+   below each card.
+
+   Theme: every value here is a DSH token, so the panel follows the palette
+   automatically — ui-theme swaps the whole `--dsw-*` set under
+   `[data-ds-dark-theme]`, and nothing in this file is theme-conditional.
+
+   Surfaces reuse DSH's own recipes instead of inventing equivalents:
+     - panel  = ui-primitives HoverCard `.preview` (bg-layer-1 + a panel
+                elevation, whose own `--dsw-elevation-stroke` supplies the
+                hairline edge, so there is no CSS border);
+     - card   = the settings-card fill/stroke pair, which is the one DSH token
+                family that keeps raising a surface in BOTH palettes (the
+                bg-layer-* steps are all #fff in light, so a fill alone cannot
+                separate a card from its panel there);
+     - scroll = the l2 elevation rebinding Menu.module.css documents.
+   The five task-status hues are the single component-local contract: there is
+   no one-to-one official status token, so they map onto the theme's semantic
+   state aliases. */
 
 .root {
-  /* Component-local presentation contract: the five task status hues.
-     Values map to the theme's semantic state tokens so both palettes stay
-     legible; nothing here is a literal color. */
-  --task-status-pending: var(--dsw-alias-label-tertiary);
+  /* Component-local presentation contract: the five task status hues, mapped
+     onto the theme's semantic state aliases so both palettes stay legible.
+     Nothing here is a literal color. */
+  --task-status-pending: var(--dsw-alias-state-idle-primary);
   --task-status-running: var(--dsw-alias-brand-primary);
   --task-status-done: var(--dsw-alias-state-success-primary);
   --task-status-blocked: var(--dsw-alias-state-warn-primary);
   --task-status-failed: var(--dsw-alias-state-error-primary);
+
+  /* Elevated-surface recipe (ui-primitives Menu): a 0px border, a stronger
+     hairline from the elevation token, and the scrollbar rebinding for a
+     raised surface. The rebinding sits on the panel rather than on the
+     scrolling box because the elevation is a property of this surface and the
+     pair inherits down to whichever descendant actually scrolls. */
+  border: 0;
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
+  box-shadow: var(--dsw-elevation-prominent);
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 
   position: fixed;
   right: 16px;
@@ -28,19 +53,69 @@
   flex-direction: column;
   gap: 10px;
   padding: 14px 16px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
-  background: var(--dsw-alias-bg-overlay);
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-  line-height: 20px;
-  box-shadow: 0 8px 32px color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent);
+  font: var(--dsw-font-xs-13);
   z-index: 100;
+}
 
+/* Drag-to-resize edge. It sits INSIDE the panel's own padding because the panel
+   clips its children (`overflow: hidden`, needed for the rounded corners), so a
+   handle overhanging the border would be cut in half; 8px matches ui-layout's
+   own DragHandle hit area. */
+.resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 8px;
+  cursor: col-resize;
+  /* A touch drag resizes instead of scrolling the list under the pointer. */
+  touch-action: none;
+  z-index: 1;
+}
+
+/* The grip fades in on approach rather than sitting in the layout permanently;
+   the block below is the only thing DSH exposes for the focus ring. */
+.resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  corner-shape: round;
+  background: var(--dsw-alias-border-l2);
+  opacity: 0;
+  transition: opacity var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.root:hover .resizer::after,
+.resizer:focus-visible::after,
+.root[data-resizing='true'] .resizer::after {
+  opacity: 1;
+}
+
+.resizer:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+  border-radius: var(--dsw-radius-sm);
+}
+
+/* A live drag must not select text it sweeps across. */
+.root[data-resizing='true'] {
+  user-select: none;
 }
 
 /* Collapsed state: a compact floating pill (chat view only) for one-tap re-expand. */
 .mini {
+  border: 0;
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
+  box-shadow: var(--dsw-elevation-prominent);
+
   position: fixed;
   right: 16px;
   bottom: 16px;
@@ -48,25 +123,27 @@
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 999px;
-  background: var(--dsw-alias-bg-overlay);
+  /* DSH applies a global superellipse `corner-shape`; a capsule must opt out
+     of it, exactly as ui-primitives Pill does. */
+  corner-shape: round;
+  background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-  line-height: 20px;
-  box-shadow: 0 8px 32px color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent);
+  font: var(--dsw-font-xs-13);
   cursor: pointer;
+  transition: background var(--ds-transition-duration-fast) var(--ds-ease-in-out);
   z-index: 100;
 }
 
 .mini:hover {
-  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .miniDot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  corner-shape: round;
   flex: none;
   background: var(--task-status-running);
 }
@@ -87,32 +164,26 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-
-  /* Shared scrollbar indirection (ui-theme's l2 pair for raised surfaces). */
-  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
-  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
 .title {
-  font-size: 14px;
-  font-weight: 700;
+  font: var(--dsw-font-s-strong-14);
   color: var(--dsw-alias-label-primary);
 }
 
 .summary {
-  font-size: 12px;
+  font: var(--dsw-font-xxs-12);
   color: var(--dsw-alias-label-secondary);
 }
 
 .collapseButton {
   margin-left: auto;
-  padding: 2px 8px;
+  padding: 3px 8px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
+  border-radius: var(--dsw-radius-sm);
   background: transparent;
   color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  line-height: 16px;
+  font: var(--dsw-font-xxxs-11);
   cursor: pointer;
   transition:
     background var(--ds-transition-duration-fast) var(--ds-ease-in-out),
@@ -129,17 +200,16 @@
   flex: none;
   padding: 6px 10px;
   border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 60%, transparent);
-  border-radius: 8px;
+  border-radius: var(--dsw-radius-sm);
   background: var(--dsw-alias-interactive-bg-hover-danger);
   color: var(--dsw-alias-state-error-primary);
-  font-size: 12px;
-  line-height: 18px;
+  font: var(--dsw-font-xxs-12);
 }
 
 .empty {
   padding: 8px 0;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
+  font: var(--dsw-font-xxs-12);
 }
 
 .list {
@@ -158,9 +228,62 @@
   flex-direction: column;
   gap: 6px;
   padding: 8px 10px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-settings-card-fill);
+  cursor: pointer;
+  transition:
+    border-color var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    background var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.card:hover {
+  border-color: var(--dsw-alias-border-l2);
+}
+
+/* New-task entrance. React keys give every card a stable identity, so this
+   animation runs exactly once — on the mount of a task that was just added —
+   and never on a status refresh or an SSE re-fetch of the same list. The
+   panel's own rise (see TaskUiPanel) carries the existing cards upward, so the
+   two motions together read as "the list grew from the bottom". */
+.card[data-enter='true'] {
+  animation: dsh-task-rise var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+/* Delete exit. The row keeps its slot for the length of this animation (the
+   component holds the removed task until the timer releases it), so the list
+   never reflows under a card that is still on screen; the panel retracts once
+   the row is gone. `forwards` holds the faded state for that window, and
+   pointer events die with the card so a dying row cannot be clicked. */
+.card[data-exit='true'] {
+  pointer-events: none;
+  animation: dsh-task-fall var(--ds-transition-duration-fast) var(--ds-ease-in-out) forwards;
+}
+
+@keyframes dsh-task-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes dsh-task-fall {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+/* Opacity-only variant, kept for reduced motion: the row must still change
+   while it lingers for the removal timer, and fading is not the movement that
+   preference objects to. */
+@keyframes dsh-task-fade-out {
+  to { opacity: 0; }
 }
 
 .cardHeader {
@@ -169,10 +292,52 @@
   gap: 8px;
 }
 
+/* Expand affordance: the card itself is the click target, so this exists for
+   keyboard and screen-reader users rather than as the only way in. */
+.expandButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--dsw-radius-xs);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  transition:
+    background var(--ds-transition-duration-fast) var(--ds-ease-in-out),
+    color var(--ds-transition-duration-fast) var(--ds-ease-in-out);
+}
+
+.expandButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Two borders rotated into a chevron: it inherits currentColor, so the theme
+   drives it with everything else. */
+.chevron {
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1px) rotate(45deg);
+  transition: transform var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+.card[data-expanded='true'] .chevron {
+  transform: translateY(1px) rotate(-135deg);
+}
+
 .dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  /* A status dot is a circle, not a superellipse. */
+  corner-shape: round;
   flex: none;
   background: var(--dsw-alias-label-tertiary);
 }
@@ -187,15 +352,25 @@
 .taskTitle {
   flex: 1;
   min-width: 0;
-  font-weight: 600;
+  font: var(--dsw-font-xs-strong-13);
   color: var(--dsw-alias-label-primary);
   overflow-wrap: anywhere;
 }
 
 .jobLine {
-  font-size: 11px;
-  color: var(--dsw-alias-label-tertiary);
   font-family: var(--ds-font-family-code);
+  font-size: var(--dsw-font-xxxs-11-font-size);
+  line-height: var(--dsw-font-xxxs-11-line-height);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* The linked job died with an earlier run, so the card's "running" claim is
+   unverified. Flagged in the warning hue rather than the muted one. */
+.jobLineStale {
+  font-family: var(--ds-font-family-code);
+  font-size: var(--dsw-font-xxxs-11-font-size);
+  line-height: var(--dsw-font-xxxs-11-line-height);
+  color: var(--dsw-alias-state-warn-primary);
 }
 
 /* ---- card actions ---- */
@@ -210,10 +385,9 @@
 .statusButton,
 .deleteButton,
 .splitButton {
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  line-height: 16px;
+  padding: 3px 8px;
+  border-radius: var(--dsw-radius-sm);
+  font: var(--dsw-font-xxxs-11);
   cursor: pointer;
   transition:
     background var(--ds-transition-duration-fast) var(--ds-ease-in-out),
@@ -307,8 +481,7 @@
 }
 
 .sectionTitle {
-  font-size: 12px;
-  font-weight: 600;
+  font: var(--dsw-font-xxs-strong-12);
   color: var(--dsw-alias-label-secondary);
 }
 
@@ -320,26 +493,24 @@
 }
 
 .metricLabel {
-  font-size: 12px;
+  font: var(--dsw-font-xxs-12);
   color: var(--dsw-alias-label-secondary);
 }
 
 .metricValue {
-  font-size: 13px;
-  font-weight: 600;
+  font: var(--dsw-font-xs-strong-13);
   color: var(--dsw-alias-label-primary);
   font-variant-numeric: tabular-nums;
 }
 
 .metricUnit {
   margin-left: 2px;
-  font-size: 11px;
-  font-weight: 400;
+  font: var(--dsw-font-xxxs-11);
   color: var(--dsw-alias-label-tertiary);
 }
 
 .metricTrend {
-  font-size: 11px;
+  font: var(--dsw-font-xxxs-11);
   color: var(--dsw-alias-label-tertiary);
   font-variant-numeric: tabular-nums;
 }
@@ -350,8 +521,8 @@
   align-self: flex-start;
   padding: 1px 8px;
   border-radius: 999px;
-  font-size: 11px;
-  line-height: 16px;
+  corner-shape: round;
+  font: var(--dsw-font-xxxs-11);
   border: 1px solid var(--dsw-alias-border-l2);
   color: var(--dsw-alias-label-secondary);
   background: transparent;
@@ -389,27 +560,30 @@
 }
 
 .progressLabel {
-  font-size: 12px;
+  font: var(--dsw-font-xxs-12);
   color: var(--dsw-alias-label-secondary);
 }
 
 .progressTrack {
   height: 6px;
-  border-radius: 3px;
+  /* Capsule, matching the theme's own scrollbar-thumb shape. */
+  border-radius: 999px;
+  corner-shape: round;
   background: var(--dsw-alias-interactive-bg-hover);
   overflow: hidden;
 }
 
 .progressFill {
   height: 100%;
-  border-radius: 3px;
+  border-radius: 999px;
+  corner-shape: round;
   background: var(--dsw-alias-brand-primary);
 }
 
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font: var(--dsw-font-xxs-12);
 }
 
 .tableCell {
@@ -430,7 +604,7 @@
 }
 
 .listItem {
-  font-size: 12px;
+  font: var(--dsw-font-xxs-12);
   color: var(--dsw-alias-label-primary);
 }
 
@@ -452,19 +626,18 @@
 }
 
 .eventTime {
-  font-size: 11px;
+  font: var(--dsw-font-xxxs-11);
   color: var(--dsw-alias-label-tertiary);
   font-variant-numeric: tabular-nums;
 }
 
 .eventTitle {
-  font-size: 12px;
-  font-weight: 500;
+  font: var(--dsw-font-xxs-strong-12);
   color: var(--dsw-alias-label-primary);
 }
 
 .eventDetail {
-  font-size: 12px;
+  font: var(--dsw-font-xxs-12);
   color: var(--dsw-alias-label-secondary);
 }
 
@@ -486,8 +659,8 @@
   gap: 6px;
   padding: 2px 8px;
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 6px;
-  font-size: 11px;
+  border-radius: var(--dsw-radius-sm);
+  font: var(--dsw-font-xxxs-11);
   color: var(--dsw-alias-label-primary);
 }
 
@@ -495,6 +668,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
+  corner-shape: round;
   flex: none;
 }
 
@@ -505,7 +679,7 @@
 }
 
 .dagEdge {
-  font-size: 11px;
+  font: var(--dsw-font-xxxs-11);
   color: var(--dsw-alias-label-tertiary);
   font-variant-numeric: tabular-nums;
 }
@@ -517,8 +691,7 @@
 }
 
 .disclosureTitle {
-  font-size: 12px;
-  font-weight: 500;
+  font: var(--dsw-font-xxs-strong-12);
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
 }
@@ -527,11 +700,229 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* ---- secondary card (task detail) ---- */
+
+/* 0fr -> 1fr animates to the content's own height without measuring it, which
+   is why the expansion needs no JS: the panel's bottom-anchored rise follows
+   the growing card on its own. The delayed `visibility` swap keeps the
+   collapsed copy out of the tab order while still letting the collapse
+   transition run to completion before it disappears. */
+.detailWrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+.card[data-expanded='true'] .detailWrap {
+  grid-template-rows: 1fr;
+}
+
+.detail {
+  overflow: hidden;
+  min-height: 0;
+  visibility: hidden;
+  transition: visibility 0s linear var(--ds-transition-duration);
+}
+
+.card[data-expanded='true'] .detail {
+  visibility: visible;
+  transition: visibility 0s;
+}
+
+.detailBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 8px;
+}
+
+/* First block owns the separator between the card summary and its detail. */
+.detailBlock:first-child {
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
+.detailLabel {
+  font: var(--dsw-font-xxs-strong-12);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.detailText {
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+.detailUnset {
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-tertiary);
+  font-style: italic;
+}
+
+/* ---- the detail's step flow ----
+   One vertical flow: filled/completed steps share the plain frame, the live step
+   and the one after it each get their own. Boxes are laid out on a grid so the
+   marker column stays aligned whatever the text length. */
+
+.flowHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.flow {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 2px 0 0;
+  list-style: none;
+}
+
+.flowStep {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 8px;
+  padding-bottom: 6px;
+}
+
+/* Connector: from under one marker to the next, so the run reads as a path. */
+.flowStep:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 15px;
+  bottom: -1px;
+  width: 1px;
+  background: var(--dsw-alias-border-l2);
+}
+
+.flowMarker {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  margin-top: 2px;
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--dsw-alias-settings-card-fill);
+  font-size: 8px;
+  line-height: 1;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.flowBox {
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* Current: a solid brand frame with a faint tint — the one step that is live. */
+.flowStep[data-state='current'] .flowBox {
+  border-color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent);
+  font: var(--dsw-font-xxs-strong-12);
+  color: var(--dsw-alias-label-primary);
+}
+
+.flowStep[data-state='current'] .flowMarker {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+}
+
+/* Next: a dashed frame, deliberately unlike both the plain and the brand one. */
+.flowStep[data-state='next'] .flowBox {
+  border-style: dashed;
+  border-color: var(--dsw-alias-border-l3);
+  font: var(--dsw-font-xxs-strong-12);
+  color: var(--dsw-alias-label-primary);
+}
+
+.flowStep[data-state='next'] .flowMarker {
+  border-style: dashed;
+  border-color: var(--dsw-alias-label-secondary);
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* Finished steps keep the plain frame; the marker carries the success hue. */
+.flowStep[data-state='done'] .flowMarker {
+  border-color: var(--dsw-alias-state-success-primary);
+  color: var(--dsw-alias-state-success-primary);
+}
+
+/* Visually hidden, still announced: the flow's state is drawn, not written. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Says why a flow looks short: the panel draws what the task carries, and a
+   task with no step list can only show the one derived node. */
+.detailNote {
+  padding-top: 4px;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  font-style: italic;
+}
+
+.detailPercent {
+  flex: none;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.detailMeta {
+  padding-top: 6px;
+  font: var(--dsw-font-xxxs-11);
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+/* Reduced motion keeps every state change, dropping only the movement: the
+   panel does not rise or retract (TaskUiPanel skips both), the detail snaps
+   open, and a card appears in place. The delete fade survives, because the row
+   lingers for the removal timer and would otherwise look stuck. */
 @media (prefers-reduced-motion: reduce) {
   .statusButton,
   .deleteButton,
   .splitButton,
-  .collapseButton {
+  .collapseButton,
+  .expandButton,
+  .chevron,
+  .mini,
+  .card,
+  .detailWrap,
+  .detail,
+  .resizer::after {
     transition: none;
+  }
+
+  .card[data-enter='true'] {
+    animation: none;
+  }
+
+  .card[data-exit='true'] {
+    animation: dsh-task-fade-out var(--ds-transition-duration-fast) linear forwards;
   }
 }

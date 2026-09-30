@@ -13,6 +13,9 @@ import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 // Type-only: pulls the `ctx.jobs` Context augmentation without binding the
 // service shape, which differs between DSH 0.1.x and 0.2.x (see JobFeed).
 import type {} from '@deepseek-ai/dsh-jobs'
+// Type-only: augments AssembleContext with `agent`, which the prompt section's
+// text provider reads to tell a subagent from the session that spawned it.
+import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -24,16 +27,32 @@ import z from 'zod'
 
 export const name = 'task-ui'
 
-export const inject = ['tools', 'storageDomain', 'webServer', 'jobs', 'agents']
+export const inject = ['tools', 'storageDomain', 'webServer', 'jobs', 'agents', 'systemPrompt']
 
 const TASK_STATUSES = ['pending', 'running', 'done', 'blocked', 'failed'] as const
 type TaskStatus = (typeof TASK_STATUSES)[number]
+
+// Flow-node states for the panel's step flow: two plain frames (`done`, `todo`)
+// and two highlighted ones (`current`, `next`).
+const TASK_STEP_STATES = ['done', 'current', 'next', 'todo'] as const
+type TaskStepState = (typeof TASK_STEP_STATES)[number]
 
 // Global task library (ADR 0005): cross-session persistent.
 const TASK_SCHEMA = z.object({
   title: z.string(),
   status: z.enum(TASK_STATUSES),
   description: z.string().default(''),
+  // What the task will do next, and the ordered flow the detail card draws.
+  // Optional and defaulted, so records written before these fields existed
+  // still load: the domain re-validates every stored record on open, and a
+  // defaulted member only ever relaxes that check. (The backend descriptor is
+  // derived from the domain name, version, and table names — not the schemas —
+  // so an added column needs no version bump.)
+  nextStep: z.string().default(''),
+  steps: z.array(z.object({
+    text: z.string(),
+    state: z.enum(TASK_STEP_STATES).default('todo'),
+  })).default([]),
   parentId: z.string().nullable().default(null),
   dependsOn: z.array(z.string()).default([]),
   surface: z.record(z.string(), z.unknown()).nullable().default(null),
@@ -100,6 +119,13 @@ interface JobFeed {
 /** Deployment-configurable plugin settings (schemastery schema). */
 export interface Config {
   jobStatusMap: JobStatusMap
+  /**
+   * Whether to contribute the one-sentence task-library nudge to the system
+   * prompt. On by default: the tool descriptions say when to use each tool, but
+   * a model that never reaches for a tool never reads them, and this library is
+   * user-visible state the model is expected to maintain.
+   */
+  promptSection: boolean
 }
 export const Config: Schema<Config> = Schema.object({
   jobStatusMap: Schema.object({
@@ -109,7 +135,86 @@ export const Config: Schema<Config> = Schema.object({
     killed: Schema.string().default(DEFAULT_JOB_STATUS_MAP.killed),
     failed: Schema.string().default(DEFAULT_JOB_STATUS_MAP.failed),
   }).default(DEFAULT_JOB_STATUS_MAP),
+  promptSection: Schema.boolean().default(true),
 })
+
+/**
+ * The system-prompt nudge. One sentence, in the register the harness's own
+ * sections use: the obligation, the moment to act, and the boundary that keeps
+ * it from becoming noise.
+ *
+ * It sits at the subagent tool's own order because this library's primary
+ * workflow is "record the task, then delegate it" — reading the delegation
+ * guidance first is the right order — and because resolving that named slot
+ * keeps the placement right if the harness ever moves it.
+ */
+const PROMPT_SECTION = 'Record multi-step work in the global task library with `task_add` before starting it — and always before delegating it to a subagent — keep the entry current with `task_update` as you work, and read it back with `task_get` before continuing anything an earlier session started; skip it for one-shot answers and trivial edits.'
+
+/**
+ * The subagent variant. A subagent does not plan, delegate, or own the library:
+ * it was handed one recorded task, so all it needs is the obligation to keep
+ * that record true. Telling it when to create tasks would only invite it to
+ * invent parallel ones its spawner cannot see.
+ */
+const PROMPT_SECTION_SUBAGENT = 'The task you were given is recorded in the global task library; keep that record current with `task_update` as you work — advance its `progress` and `steps` — and write the outcome into it when you finish, so the session that spawned you can follow along.'
+
+/**
+ * When this process loaded the plugin.
+ *
+ * The job registry is in-process, so a job linked to a task before this instant
+ * cannot still be alive — which is the only available way to tell a task that is
+ * genuinely running from one whose job died with a previous run. The `jobs`
+ * service exposes no call that enumerates every owner's jobs (`list(caller)` is
+ * filtered by owner), so a task's own timestamp is the signal.
+ */
+const BOOT_AT = Date.now()
+
+/**
+ * Whether a task claims to be running on a job that cannot exist any more. The
+ * record does not otherwise say so, and a later session would read `running` as
+ * "work is in flight" when nothing is.
+ * @param task - the task row to inspect.
+ * @returns true when the record's `running` status is unverified.
+ */
+function jobLinkStale(task: TaskRow): boolean {
+  return task.jobId !== null && task.status === 'running' && task.updatedAt < BOOT_AT
+}
+
+/**
+ * Render one task as the model reads it: what it is, where it stands, and how to
+ * continue. This is the cross-session handoff path — the durable record carries
+ * far more than `task_list` prints, and a later session has no other way to read
+ * it — so it leads with the actionable state and ends with the background.
+ * @param task - the task row to render.
+ * @returns the task as multi-line text.
+ */
+function renderTask(task: TaskRow): string {
+  const lines: string[] = [`[${task.status}] ${task.title}`, `id: ${task.id}`]
+  // Qualify the status before the reader acts on it.
+  if (jobLinkStale(task)) {
+    lines.push(`warning: job ${String(task.jobId)} was linked in an earlier run and no longer exists, so "running" is unverified — check before continuing`)
+  }
+
+  if (task.progress !== null) {
+    const percent = task.progress.percent === undefined ? '' : `${Math.round(task.progress.percent)}% — `
+    lines.push(`progress: ${percent}${task.progress.text}`)
+  }
+  if (task.nextStep !== '') lines.push(`next: ${task.nextStep}`)
+
+  if (task.steps.length > 0) {
+    lines.push('steps:')
+    for (const step of task.steps) lines.push(`  - [${step.state}] ${step.text}`)
+  }
+  if (task.dependsOn.length > 0) lines.push(`depends on: ${task.dependsOn.join(', ')}`)
+  if (task.parentId !== null) lines.push(`parent: ${task.parentId}`)
+  if (task.jobId !== null) lines.push(`job: ${task.jobId}`)
+  if (task.description !== '') lines.push(`description: ${task.description}`)
+  // `surface` is a document for the user's panel, not prose: say it exists
+  // rather than dumping opaque JSON into the model's context.
+  if (task.surface !== null) lines.push('surface: (generative-UI document; the user sees it in the panel)')
+  lines.push(`created: ${new Date(task.createdAt).toISOString()}  updated: ${new Date(task.updatedAt).toISOString()}`)
+  return lines.join('\n')
+}
 
 // Defensive on sync/async: storageDomain reads may be sync or async
 // depending on backend; for-await and await both tolerate either.
@@ -224,7 +329,10 @@ export function apply(ctx: Context, config: Config): void {
   // arbitrary background jobs (npm/build commands would pollute the library
   // with command-noise titles).
   const applyJobStatus = async (jobId: string, jobStatus: string): Promise<void> => {
-    const mapped = jobStatusMap[jobStatus]
+    // Read through the table's own entries rather than indexing by the raw
+    // string: a job lifecycle state outside the configured set is a no-op, not
+    // an error, and this keeps that intent type-safe.
+    const mapped = Object.entries(jobStatusMap).find(([key]) => key === jobStatus)?.[1]
     if (mapped === undefined) return
     const tasks = await tasksPromise
     for await (const [key, value] of tasks.entries()) {
@@ -292,7 +400,9 @@ export function apply(ctx: Context, config: Config): void {
         const tasks = await tasksPromise
         if (req.method === 'GET' && url === '/task-ui/tasks') {
           const rows = await listTasks(tasks)
-          return sendJson(res, 200, { tasks: rows })
+          // `jobStale` is derived per process, so it is computed here rather than
+          // stored: it depends on when this process started.
+          return sendJson(res, 200, { tasks: rows.map((row) => ({ ...row, jobStale: jobLinkStale(row) })) })
         }
         if (req.method === 'POST' && url === '/task-ui/status') {
           const body = await readJsonBody(req)
@@ -394,10 +504,27 @@ export function apply(ctx: Context, config: Config): void {
     }
   })
 
+  // ---- system-prompt nudge ----
+  // The tool descriptions below carry the when-and-how, which is how the
+  // harness's own `todo_write` drives itself. That only reaches a model that
+  // reaches for a tool, though, and this library is user-visible state the model
+  // is expected to maintain on its own — so it also gets one always-on sentence,
+  // silenced wherever the tools are not actually callable in that scope.
+  if (config.promptSection) {
+    ctx.systemPrompt.section({
+      name: 'task-ui:library',
+      order: ctx.systemPrompt.getSectionOrder('TOOL_SUBAGENT'),
+      text: (assembly) => {
+        if (ctx.tools.get('task_add', assembly.scope) === undefined) return ''
+        return assembly.agent?.session.header.origin === 'subagent' ? PROMPT_SECTION_SUBAGENT : PROMPT_SECTION
+      },
+    })
+  }
+
   // ---- model-facing tools ----
   ctx.tools.register(defineTool({
     name: 'taskui_probe',
-    description: 'Task UI spike probe: reports plugin status and current task count.',
+    description: 'Report the task-library plugin\'s host status and the current task count.',
     parameters: {},
     output: textOutput(),
     async execute() {
@@ -408,22 +535,48 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'task_list',
-    description: 'List all tasks in the global task library (id, status, title, jobId).',
+    description: 'List every task in the global task library as one triage line each: `- [status] title (id[, job=...]) — next: ...`. Read it before creating entries so you do not duplicate one, whenever the state may have moved (the user, another session, or a subagent can all change it), and when you pick up work recorded earlier. Then call `task_get` for the one task you are about to work on: the list is deliberately short, and the full record lives there.',
     parameters: {},
     output: textOutput(),
     async execute() {
       const rows = await listTasks(await tasksPromise)
       if (rows.length === 0) return { text: '(no tasks)' }
-      return { text: rows.map((r) => `- [${r.status}] ${r.title} (${r.id}${r.jobId ? ', job=' + r.jobId : ''})`).join('\n') }
+      return {
+        text: rows.map((r) => {
+          const next = r.nextStep === '' ? '' : ` — next: ${r.nextStep}`
+          const job = r.jobId === null ? '' : `, job=${r.jobId}${jobLinkStale(r) ? ' [expired]' : ''}`
+          return `- [${r.status}] ${r.title} (${r.id}${job})${next}`
+        }).join('\n'),
+      }
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'task_get',
+    description: 'Read ONE task from the global task library in full: what it is, where it stands, and how to continue — description, progress, the whole step flow, next step, dependencies, linked job, and timestamps. Call it before continuing work another session or an earlier turn started, so you resume from what is actually recorded instead of re-deriving it.',
+    parameters: {
+      id: { type: 'string', required: true, description: 'Task id (from `task_list`).' },
+    },
+    output: textOutput(),
+    async execute(args) {
+      const task = await getTask(await tasksPromise, args.id)
+      if (task === undefined) return { text: `task not found: ${args.id}` }
+      return { text: renderTask(task) }
     },
   }))
 
   ctx.tools.register(defineTool({
     name: 'task_add',
-    description: 'Add a task to the global task library.',
+    description: 'Record a task in the global task library — a persistent list shared across sessions and drawn in the user\'s panel — to plan multi-step work and show progress; skip it for trivial single-step requests. Create the entry BEFORE you start the work, and always before delegating it to a subagent. Fill `description`, `progress` and `steps` on creation: `progress` is where it stands now, `nextStep` what happens next, and `steps` is the ordered `[{ text, state }]` flow the panel draws (state `done` / `current` / `next` / `todo`). Never create a title-only entry.',
     parameters: {
       title: { type: 'string', required: true, description: 'Task title.' },
       description: { type: 'string', description: 'Optional description.' },
+      nextStep: { type: 'string', description: 'Optional next action for this task, shown in the panel detail view.' },
+      steps: {
+        type: 'array',
+        items: { type: 'object', additionalProperties: true },
+        description: 'Optional ordered flow for the panel detail view: [{ text, state }], state one of done|current|next|todo. done/todo render in the plain frame; current and next each get a highlighted one.',
+      },
       parentId: { type: 'string', description: 'Optional parent task id.' },
       dependsOn: { type: 'array', items: { type: 'string' }, description: 'Optional dependency task ids.' },
       surface: { type: 'object', additionalProperties: true, description: 'Optional task-surface document (structured JSON rendered by the panel).' },
@@ -434,13 +587,15 @@ export function apply(ctx: Context, config: Config): void {
       const now = Date.now()
       const id = crypto.randomUUID()
       const tasks = await tasksPromise
-      // `progress` arrives as an unvalidated JSON object from the model; the
-      // durable zod boundary validates it on write, so the cast documents the
-      // trusted schema seam (same for surface, which needs no cast).
+      // `progress`, `surface` and `steps` arrive as unvalidated JSON from the
+      // model; the durable zod boundary validates them on write, so the casts
+      // document that trusted schema seam.
       await tasks.put(id, {
         title: args.title,
         status: 'pending',
         description: args.description ?? '',
+        nextStep: args.nextStep ?? '',
+        steps: (args.steps ?? []) as TaskRecord['steps'],
         parentId: args.parentId ?? null,
         dependsOn: args.dependsOn ?? [],
         surface: args.surface ?? null,
@@ -455,12 +610,18 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'task_update',
-    description: 'Update a task. After spawning a subagent for a task, link it with its job id and set status running so the panel auto-syncs.',
+    description: 'Advance one task in the global task library. While the task is in flight, keep its `progress` and `steps` current — mark finished steps `done`, the live one `current`, the next one `next` — and rewrite `nextStep`; an entry that never moves is worse than none. When you delegate the task to a subagent, link the spawned job with `jobId` and set status `running`, and its terminal status follows that job automatically. Mark it `done` as soon as it is finished.',
     parameters: {
       id: { type: 'string', required: true, description: 'Task id.' },
       title: { type: 'string', description: 'New title.' },
       status: { type: 'string', enum: TASK_STATUSES, description: 'New status.' },
       description: { type: 'string', description: 'New description.' },
+      nextStep: { type: 'string', description: 'New next action, shown in the panel detail view.' },
+      steps: {
+        type: 'array',
+        items: { type: 'object', additionalProperties: true },
+        description: 'New ordered flow for the panel detail view: [{ text, state }], state one of done|current|next|todo. Keep finished steps as done, the live one as current, and the following one as next.',
+      },
       parentId: { type: 'string', description: 'New parent task id.' },
       dependsOn: { type: 'array', items: { type: 'string' }, description: 'New dependency task ids.' },
       surface: { type: 'object', additionalProperties: true, description: 'Optional task-surface document (structured JSON rendered by the panel).' },
@@ -480,6 +641,8 @@ export function apply(ctx: Context, config: Config): void {
         title: patch.title ?? task.title,
         status: patch.status ?? task.status,
         description: patch.description ?? task.description,
+        nextStep: patch.nextStep ?? task.nextStep,
+        steps: (patch.steps ?? task.steps) as TaskRecord['steps'],
         parentId: patch.parentId ?? task.parentId,
         dependsOn: patch.dependsOn ?? task.dependsOn,
         surface: patch.surface ?? task.surface,
@@ -495,7 +658,7 @@ export function apply(ctx: Context, config: Config): void {
 
   ctx.tools.register(defineTool({
     name: 'task_delete',
-    description: 'Delete a task from the global task library.',
+    description: 'Delete one task from the global task library. Prefer marking a task `done` or `blocked` over deleting it: the library is the record of what was already done, and the user may still want that history.',
     parameters: {
       id: { type: 'string', required: true, description: 'Task id.' },
     },

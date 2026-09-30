@@ -1,9 +1,17 @@
 # dsh-global-task-list bundle patch — mounts the host plugin. A `dsh.client` row is
 # also the browser roster the modules node half scans into __DSH_BOOT__.
+#
+# The row carries an explicit `config:` block, and that matters: the loader
+# passes `undefined` to `apply(ctx, config)` when a row has no config key, and
+# schemastery only fills defaults into a config object that was supplied. Setting
+# `promptSection: false` keeps the tools and the panel but drops the always-on
+# system-prompt sentence, for a deployment that would rather rely on the tool
+# descriptions alone.
 - insert:
     - id: task-ui
       name: 'dsh-global-task-list'
       config:
+        promptSection: true
         jobStatusMap:
           running: running
           stopping: running

@@ -1,13 +1,16 @@
 # dsh-global-task-list
 
-A global task library for the DeepSeek Harness: five model-facing CRUD tools, a persistent browser panel, subagent job status synchronization, and a generative-UI surface renderer. Tasks persist across sessions in a `storageDomain` unit and survive restarts.
+A global task library for the DeepSeek Harness: six model-facing tools, a persistent browser panel, subagent job status synchronization, and a generative-UI surface renderer. Tasks persist across sessions in a `storageDomain` unit and survive restarts.
 
 > 全局任务列表插件：为 DeepSeek Harness 提供一个跨会话持久化的任务库，附右下角常驻面板（轨迹等非对话界面自动隐藏）。主 agent 用 `task_add` 创建任务（带描述与进度），spawn 子 agent 后关联 `jobId` 自动同步终态；面板支持手动改状态、删除、拆分，并实时（SSE）刷新。任务可携带 `surface` 结构化文档渲染生成式 UI（进度条、时间线、表格、DAG 等）。
 
 ## What it does
 
-- **Global task library** — `task_add` / `task_list` / `task_update` / `task_delete` model tools over a cross-session `storageDomain` unit (`task_ui`). Tasks carry a title, status (`pending` / `running` / `done` / `blocked` / `failed`), description, `parentId`, `dependsOn`, an optional `progress` (`{ text, percent? }`), and an optional `surface` document.
-- **Persistent panel** — a bottom-right floating panel (mounted in the session-scoped `conversation.input.dock` slot) subscribes to a Server-Sent Events channel (`/task-ui/events`) and refreshes on every task change, letting the user change status, delete (with confirmation), and trigger a generative split loop. Styled with `--dsw-*` theme tokens and localized zh/en. It disappears on non-conversation views (e.g. trajectory).
+- **Global task library** — `task_add` / `task_list` / `task_get` / `task_update` / `task_delete` model tools over a cross-session `storageDomain` unit (`task_ui`). Tasks carry a title, status (`pending` / `running` / `done` / `blocked` / `failed`), description, `nextStep`, an ordered `steps` flow, `parentId`, `dependsOn`, an optional `progress` (`{ text, percent? }`), and an optional `surface` document.
+- **Persistent panel** — a bottom-right floating panel (mounted in the session-scoped `conversation.input.dock` slot) subscribes to a Server-Sent Events channel (`/task-ui/events`) and refreshes on every task change, letting the user change status, delete (with confirmation), and trigger a generative split loop. Clicking a card expands a **secondary card** under it with the description, the step flow, dependencies, and timestamps. Styled with `--dsw-*` theme tokens and localized zh/en. It disappears on non-conversation views (e.g. trajectory).
+- **Step flow** — the detail card describes progress as a vertical flow rather than a bar: finished and pending steps share the plain frame, while the two that matter are drawn differently — `current` in a solid brand frame with a faint tint, `next` in a dashed one. Steps come from the owner's `steps` (`done` / `current` / `next` / `todo`); when it wrote none the panel derives a node from `progress`, and a list naming no `next` inherits `nextStep` as one. A step's state is drawn, so it is also announced to screen readers as text.
+- **Panel motion** — a new task rises in while the bottom-anchored panel slides up by the height it gained, which is what lifts the cards above it; a deleted card holds its slot through its exit animation and the panel retracts afterwards. Expansion is CSS-only (`grid-template-rows: 0fr → 1fr`). All of it is skipped under `prefers-reduced-motion`. A removed card is re-adopted as a ghost row inside a *layout* effect, so it never leaves the DOM for a painted frame — that gap was what made the whole list flash and the panel run a shrink/grow/shrink cycle on delete.
+- **Resizable** — drag the panel's left edge (or focus it and use ←/→) to set its width between 260px and 760px; the width is remembered in `localStorage`. The gesture follows ui-layout's own `DragHandle`: pointer capture for the whole drag, one throttled update per animation frame, and the width computed from the drag origin rather than accumulated per move.
 - **Subagent job sync** — a task linked to a background job via `task_update(id, { jobId })` auto-advances its terminal status through the `JOB_STATUS_MAP` (`completed`→`done`, `failed`→`failed`, `killed`→`blocked`). Tasks are created explicitly by the master agent, never auto-registered from arbitrary background jobs.
 - **Generative UI surface** — a task's `surface` field renders a whitelisted, recursive component tree: `section`, `metric`, `statusBadge`, `progress`, `table`, `list`, `timeline`, `dag`, `disclosure`.
 
@@ -77,33 +80,66 @@ Profiles reload their configuration by default (`dsh-hmr`), so a running desktop
 npm install
 npm run build:host    # tsdown bundles src/index.ts → lib/index.js
 npm run build:client  # tsdown bundles src/client → lib/client.js
+npm run typecheck     # tsc --noEmit, against the real DSH 0.2.0-rc.2 types
+npm test              # builds, then typecheck + smoke + render + CSS-classes
+npm run sync web      # copy the build into a profile's node_modules (dev helper)
 ```
 
 Both halves are TypeScript: the Host half (`src/index.ts`) compiles to plain ESM, and the client half (TSX) compiles with CSS Modules (lightningcss) into a `__ModuleLoader__` closure-factory bundle.
+
+### Why the test suite exists
+
+The build only transpiles — tsdown runs with `dts: false` and never type-checks — so nothing in the build path catches a wrong identifier. `npm test` closes that with five layers, each of which caught something the others missed:
+
+| Layer | Catches |
+|---|---|
+| `tsc --noEmit` | undefined identifiers, wrong argument types, stale locale keys (the dictionaries are the key-set source of truth) |
+| `test/host-smoke.mjs` | what the Host half actually contributes: the six tools, their converted JSON Schema (including the object-typed `steps` items), both HTTP routes, the job-bridge subscription, and the system-prompt section |
+| `test/client-smoke.mjs` | module-eval and `apply()` throws — what a browser reports as "Failed to load plugins" |
+| `test/render-check.mjs` | render-path throws across every task state. DSH isolates each slot entry, so a component that throws renders *nothing*: the panel disappears while the rest of the UI stays healthy. The harness runs the real component through a minimal hook runtime and renders child components too. |
+| `test/class-check.mjs` | a `css.foo` with no `.foo` rule (and the reverse) — the class map is a plain object, so neither side is typed |
+
+The typecheck needs the DSH packages as `devDependencies`; they are pinned exactly to the runtime line the plugin targets, and they never ship (`files` lists only `lib/` and the patch).
 
 ## Model Experience
 
 ### Request context and condition
 
-The package contributes five model-facing tools to the agent's tool catalog.
+The package contributes six model-facing tools to the agent's tool catalog.
 
 #### What the model sees
 
 - `taskui_probe` — reports the plugin's host-alive status and current task count.
-- `task_list` — lists every task as `- [status] title (id, job=...)`.
-- `task_add(title, description?, parentId?, dependsOn?, surface?, progress?)` — creates a task (initial `pending`).
-- `task_update(id, title?/status?/description?/parentId?/dependsOn?/surface?/progress?/jobId?)` — patches one task; `progress` is `{ text, percent? }`, `surface` accepts a structured generative-UI document, and `jobId` links the task to a background job for terminal-status sync.
+- `task_list` — one triage line per task: `- [status] title (id[, job=...]) — next: ...`.
+- `task_get(id)` — the full record of one task, ordered the way a session picking up someone else's work needs it: status and title, `progress` (with percent), `next`, the whole `steps` flow with its states, dependencies, parent, job, description, and timestamps.
+- `task_add(title, description?, nextStep?, steps?, parentId?, dependsOn?, surface?, progress?)` — creates a task (initial `pending`).
+- `task_update(id, title?/status?/description?/nextStep?/steps?/parentId?/dependsOn?/surface?/progress?/jobId?)` — patches one task; `progress` is `{ text, percent? }`, `nextStep` is the one-line "what happens next", `steps` is the ordered `[{ text, state }]` flow the detail card draws, `surface` accepts a structured generative-UI document, and `jobId` links the task to a background job for terminal-status sync.
 - `task_delete(id)` — deletes one task.
+
+The list is deliberately short and the detail lives in `task_get`, so the model's read path is "filter with `task_list`, then read the one task you are about to work on". The durable record carries far more than any single line could, and a later session has no other way to reach it.
+
+`nextStep` and `steps` postdate the original record schema. Both are optional and defaulted, and the domain's backend descriptor is derived from the domain name, version, and table names rather than the zod schemas — so adding a column needs no version bump, and records written before it existed still load. `steps` items are validated by the durable zod boundary on write, so the tool parameter declares them as loose objects (`additionalProperties: true`) instead of duplicating that enum in JSON Schema.
 
 The `surface` document is a recursive, whitelisted component tree (`section` / `metric` / `statusBadge` / `progress` / `table` / `list` / `timeline` / `dag` / `disclosure`) rendered by the browser panel. Unknown kinds are ignored by the renderer; the Host stores the document as opaque JSON.
 
+#### How the agent is made to use it
+
+A skill is **model-invoked**: the catalog the model sees carries only each skill's name and description, so `task-ui` loads exactly when the model decides that description matches — which is not when ordinary work starts. That is the wrong lever for behaviour that must happen unprompted, so the plugin uses the two levers that are always present instead:
+
+1. **Tool descriptions** — the schemas sit in the system prompt's tool catalog on every request. Each one states its purpose, the moment to act, and its boundary (the same shape the harness uses for its own `todo_write`, which is proactive for exactly this reason). `task_add` says to record multi-step work *before starting it and always before delegating*, and to skip one-shot requests; `task_update` says to keep the entry moving and to link a delegated job.
+2. **One system-prompt section** (`task-ui:library`, at the subagent tool's own order) — one sentence in the harness's own register, so a model that never reaches for a tool still knows the library exists. It covers the whole obligation, not just the write half: record before starting, keep current while working, **read the record back before continuing anything an earlier session started**, and skip one-shot work. It renders **two variants**: the session that owns the work gets all four clauses, while a subagent (read from `AssembleContext.agent.session.header.origin`) is told only to keep *its* task's record true — it does not plan, delegate, or create parallel entries its spawner cannot see. It renders empty in any scope where `task_add` is not callable, and `config.promptSection: false` drops it for a deployment that prefers to rely on the descriptions alone.
+
+Sections are merged **by name**, so this one — a unique name no DSH package or preset uses — is never shadowed by, and never shadows, the deployment's persona: all of them simply render in `order` sequence (`deployment:persona-prefix` at 0, this at the subagent tool's order, `deployment:persona-suffix` at 10200).
+
+The bundled skill remains the place for the *detailed* workflow (the subagent supervision loop, the flow-authoring rules, the cross-session handoff read order); these two levers are what make the library get used without anyone asking for it.
+
 #### Token effect
 
-Five tool schemas plus their descriptions are injected into the system-prompt tool catalog. Fixed cost; no per-task or data-dependent prompt growth.
+Six tool schemas plus their descriptions are injected into the system-prompt tool catalog, and — unless `config.promptSection` is false — one fixed sentence into the system prompt. Fixed cost; no per-task or data-dependent prompt growth.
 
 #### KV Cache effect
 
-Independent of the agent's request-context assembly. The tool schemas are static, so the prompt prefix is stable across requests; task-list content does not enter the prompt. A plugin version change replaces the tool schemas and invalidates reuse.
+Independent of the agent's request-context assembly. The tool schemas and the prompt section are static, so the prompt prefix is stable across requests; task-list content does not enter the prompt. A plugin version change (or toggling `promptSection`) replaces the section, or the tool schemas, and invalidates reuse.
 
 ## Known Limitations and Deferred Work
 
@@ -111,6 +147,10 @@ Independent of the agent's request-context assembly. The tool schemas are static
 - **Surface is opaque** — the Host stores `surface` as unvalidated JSON (`z.record`); malformed kinds fall back to "ignored" in the renderer rather than a load-time error.
 - **`sync-profile.mjs` is a local dev helper** — it copies the built package into `$DSH_HOME/profiles/<profile>/node_modules` (profile defaults to `web`) and warns when that profile's `dsh.profile.bundles` does not list the plugin. It is not published (excluded via `files`); use `dsh plugin add` for installation.
 - **Job-status sync degrades, never blocks** — a runtime exposing neither `jobs.events.subscribe` nor `jobs.onJobsChanged` keeps the tools, the panel, and the HTTP API, and logs `jobs service exposes no change feed; job status sync disabled`.
+- **The prompt section cannot force the behaviour** — descriptions and one sentence raise the odds that the model records its work; nothing in the harness compels it. A deployment that needs a guarantee should say so in its own persona or preset instructions, which outrank a plugin's contribution.
+- **Skill updates need a manual refresh** — the Host half seeds `skills/task-ui/SKILL.md` into `<dshHome>/skills/task-ui/` only when that file is absent, so it never clobbers a user's edits; a plugin upgrade therefore does not update an already-seeded copy.
+- **Provenance is not recorded** — a task does not carry the session that created it or last touched it, so a later session can read *what* is true but not *who* established it. `dependsOn` covers task-to-task blocking; a reason that is not another task ("waiting on an external service") has only `nextStep` to live in.
+- **A `running` task linked to a job is flagged, not corrected** — the job registry is in-process, so a `jobId` written before the running Host started cannot refer to anything alive. Both read paths say so: `task_list` appends `[expired]`, `task_get` leads with a `warning:` line, and the panel colours the job line with `--dsw-alias-state-warn-primary`. The record is *annotated* rather than rewritten, because the plugin cannot know whether the work finished, was abandoned, or is simply unrecorded. The signal is the task's own `updatedAt` compared against Host start (`jobs` exposes no call that enumerates every owner's jobs), so a write after boot clears the flag — a false negative if a session sets `running` by hand on a task that still carries an old `jobId`.
 
 ## Acknowledgements
 
