@@ -143,8 +143,13 @@ whenToUse: "Task UI 模式：设计/管理/可视化任务，或创建/更新任
 4. **在 spawn 子 agent 的 prompt 里明确告知它的任务 id**，并指示它：
    做完关键里程碑时调用 `task_update(任务id, { progress: { text: "...", percent: N }, nextStep: "下一步...", steps: [...] })`
    更新进度、下一步与流程图，完成时调用
-   `task_update(任务id, { status: "done", description: "补充完成说明", nextStep: "", steps: [] })`。
+   `task_update(任务id, { status: "done", description: "补充完成说明", nextStep: "", steps: [把已有步骤全部标成 done] })`。
    （`task_*` 是全局工具，subagent 也能调用。）
+
+   **收尾时必须清空 `nextStep`**——任务已经结束，"下一步"再留着任何内容都会误导下一个接手的人。
+   而 `steps` **要保留、只把最后的状态改成 `done`**，不要清空：完成的步骤序列就是"这件事到底做了什么"的记录，
+   正是后来者最需要的信息。清空它，面板详情会退化成孤零零一个节点。
+
 5. 用户在面板上点击状态按钮是**手动覆盖**（如标记 blocked），不要与用户的覆盖冲突。
 6. 用户点击面板的「拆分」按钮会以一条用户消息进入会话——把它当作用户的明确请求处理：
    拆分子任务（`task_add` + `parentId`）并给出推进建议。
