@@ -4,6 +4,16 @@ Notable changes per release, newest first. The DSH peer range is this package's
 compatibility contract: a `0.1.x` release does not install on a `0.2.x` runtime,
 and the runtime rejects it before pnpm runs.
 
+## [0.2.7] — 2026-10-01
+
+### Added
+
+- **The library hands its operator manual to the session that starts using it.** The bundled `task-ui` skill stays model-invoked for every other purpose, but a model that never calls the `skill` tool never reads it — and the moment it decides to use the library is exactly when it needs to know how. The skill's body is now attached to the result of the first `task_*` call of a session, once per session.
+
+  A tool result is the right vehicle for three reasons. It lands in the **same turn** — a system-prompt section or a dynamic context could only take effect on the next request, one step after the decision it is meant to inform. It costs nothing in sessions that never touch the library. And it appends to the conversation instead of changing the prompt, so the cached prefix is untouched.
+
+  The body is read from this package's own bundled copy rather than through `ctx.skills`: this plugin runs on the host plane while skill providers mount per agent preset, so a host lookup can miss the catalog a session actually sees. Front matter is stripped, and the delivered text stays under the tool-result pruner's threshold.
+
 ## [0.2.6] — 2026-10-01
 
 ### Added
@@ -186,6 +196,7 @@ Initial release: a cross-session global task library, a floating panel with
 status/delete/split controls, subagent job-status sync, and the generative-UI
 `surface` renderer.
 
+[0.2.7]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.3...v0.2.4

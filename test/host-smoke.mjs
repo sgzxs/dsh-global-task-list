@@ -237,6 +237,26 @@ const tidy = await byName.task_update.execute({
 check('a tidy completion carries no note', !tidy.text.includes('note:'))
 await byName.task_delete.execute({ id: wholeId })
 
+// ---- the operator manual rides the first library call of a session ----
+// The skill is model-invoked, so a session that never calls the `skill` tool
+// would never read it — and the moment it decides to use the library is exactly
+// when it needs to know how.
+const sessionA = { agent: { session: { id: 'session-a' } } }
+const firstCall = await byName.task_list.execute({}, sessionA)
+check('the first library call carries the manual', firstCall.text.includes('You have started using the global task library'))
+check('the manual carries the skill body', firstCall.text.includes('全局任务库与监督面板'))
+check('the front matter is stripped', !firstCall.text.includes('description: "Task UI'))
+
+const secondCall = await byName.task_list.execute({}, sessionA)
+check('the manual is delivered once per session', !secondCall.text.includes('You have started using the global task library'))
+
+const otherSession = await byName.task_get.execute({ id: 'missing' }, { agent: { session: { id: 'session-b' } } })
+check('another session is handed it too', otherSession.text.includes('You have started using the global task library'))
+
+const noSession = await byName.task_list.execute({})
+check('no session id means no manual', !noSession.text.includes('You have started using the global task library'))
+console.log(`manual size          : ${(await byName.task_list.execute({}, { agent: { session: { id: 'session-c' } } })).text.length} chars, once per session`)
+
 // A task whose job was linked before this process started cannot still be
 // running: the job registry is in-process. The Host must say so in both read
 // paths instead of letting "running" stand unqualified.

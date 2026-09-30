@@ -439,6 +439,57 @@ function completionNotes(task: TaskRecord): string {
   return `\nnote: marked done, but the record is incomplete — ${problems.join('; ')}.`
 }
 
+/** Sessions already handed the library's operator manual. */
+const manualDelivered = new Set<string>()
+
+/** The bundled skill body, read once. */
+let manualBody: string | undefined
+
+/**
+ * The operator manual, read from this package's own bundled skill.
+ *
+ * Read from disk rather than through `ctx.skills` on purpose: this plugin runs
+ * on the host plane while the skill providers are mounted per agent preset, so a
+ * host lookup can miss the catalog a session actually sees. The bundled file is
+ * the same content we ship and seed, and it is always next to `lib/`.
+ * @returns the skill body without its front matter, or '' when unreadable.
+ */
+function operatorManual(): string {
+  if (manualBody !== undefined) return manualBody
+  try {
+    const src = fileURLToPath(new URL('../skills/task-ui/SKILL.md', import.meta.url))
+    const raw = existsSync(src) ? readFileSync(src, 'utf8') : ''
+    // The `---` block is catalog metadata (name/description), not instruction.
+    manualBody = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim()
+  } catch {
+    manualBody = ''
+  }
+  return manualBody
+}
+
+/**
+ * Hand a session the operator manual the first time it uses the library.
+ *
+ * The skill is model-invoked, so a model that never calls the `skill` tool never
+ * reads it — and the moment it decides to use the library is precisely when it
+ * needs to know how. Attaching the body to the first tool result of a session
+ * costs nothing until then, lands in the same turn (a system-prompt section
+ * could only take effect on the next request), and appends to the conversation
+ * instead of touching the cached prompt prefix. Once per session: after that the
+ * text is already in history.
+ * @param exec - the tool execution context, which carries the calling agent.
+ * @param text - the result text to extend.
+ * @returns the result text, with the manual appended the first time.
+ */
+function withManual(exec: unknown, text: string): string {
+  const sessionId = (exec as { agent?: { session?: { id?: unknown } } } | undefined)?.agent?.session?.id
+  if (typeof sessionId !== 'string' || manualDelivered.has(sessionId)) return text
+  const manual = operatorManual()
+  if (manual === '') return text
+  manualDelivered.add(sessionId)
+  return `${text}\n\n---\n\nYou have started using the global task library, so here is how to use it well. This is the bundled \`task-ui\` skill; read it once and follow it for the rest of this session.\n\n${manual}`
+}
+
 export function apply(ctx: Context, config: Config): void {
   // The patch row carries an explicit `config:` block, so the loader always
   // passes a validated config object here (schemastery fills schema defaults).
@@ -707,8 +758,21 @@ export function apply(ctx: Context, config: Config): void {
   // out of apply() is a fatal load failure. Retrying recovers the tool as soon
   // as the old fiber finishes; the alternative is a plugin that took the app
   // down to avoid a name clash.
+  //
+  // Each result also passes through `withManual`, which hands the session the
+  // operator manual on its first library call. Wrapping the registration rather
+  // than the six return statements keeps that in one place.
   const registerTool = (definition: Parameters<typeof ctx.tools.register>[0]): void => {
-    acquireTolerantly(ctx, `the ${definition.name} tool`, () => ctx.tools.register(definition))
+    const inner = definition.execute
+    const delivered: typeof definition = {
+      ...definition,
+      execute: async (...callArgs: Parameters<typeof inner>) => {
+        const result = await inner(...callArgs)
+        if (typeof result !== 'object' || result === null || !('text' in result)) return result
+        return { ...result, text: withManual(callArgs[1], String((result as { text: unknown }).text)) }
+      },
+    } as typeof definition
+    acquireTolerantly(ctx, `the ${definition.name} tool`, () => ctx.tools.register(delivered))
   }
 
   registerTool(defineTool({
