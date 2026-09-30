@@ -4,15 +4,21 @@ Notable changes per release, newest first. The DSH peer range is this package's
 compatibility contract: a `0.1.x` release does not install on a `0.2.x` runtime,
 and the runtime rejects it before pnpm runs.
 
-## [Unreleased]
+## [0.2.2] — 2026-09-30
 
 ### Changed
 
-- README: the absence of a session/provenance field is now documented as a
-  deliberate design decision — tasks are session-independent, so a handoff needs
-  current state and the next action, not the origin — rather than as a gap. The
-  blocked-reason limitation stays, on its own. The npm package page keeps showing
-  the published README until the next release.
+- **`skills/task-ui/SKILL.md`** — the completion form now keeps the step flow and
+  marks it `done`, instead of sending `steps: []`. Clearing it discarded the one
+  thing a later reader most wants — the sequence of what was actually done — and
+  made the panel's detail degrade to a single derived node; only `nextStep` is
+  cleared on completion. This reaches **fresh installs only**: the Host seeds the
+  skill into `<dshHome>/skills/` once and never overwrites it, so an existing
+  deployment keeps whatever it already has.
+- **README** — the absence of a session/provenance field is now documented as a
+  deliberate design decision (tasks are session-independent, so a handoff needs
+  current state and the next action, not the origin) rather than as a gap. The
+  blocked-reason item stays, on its own.
 
 ## [0.2.1] — 2026-09-30
 
@@ -134,6 +140,7 @@ Initial release: a cross-session global task library, a floating panel with
 status/delete/split controls, subagent job-status sync, and the generative-UI
 `surface` renderer.
 
+[0.2.2]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.1.4...v0.1.5
