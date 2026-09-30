@@ -89,15 +89,16 @@ Both halves are TypeScript: the Host half (`src/index.ts`) compiles to plain ESM
 
 ### Why the test suite exists
 
-The build only transpiles — tsdown runs with `dts: false` and never type-checks — so nothing in the build path catches a wrong identifier. `npm test` closes that with five layers, each of which caught something the others missed:
+The build only transpiles — tsdown runs with `dts: false` and never type-checks — so nothing in the build path catches a wrong identifier. `npm test` closes that with six layers, each of which caught something the others missed:
 
 | Layer | Catches |
 |---|---|
 | `tsc --noEmit` | undefined identifiers, wrong argument types, stale locale keys (the dictionaries are the key-set source of truth) |
-| `test/host-smoke.mjs` | what the Host half actually contributes: the six tools, their converted JSON Schema (including the object-typed `steps` items), both HTTP routes, the job-bridge subscription, and the system-prompt section |
+| `test/host-smoke.mjs` | what the Host half actually contributes: the six tools, their converted JSON Schema (including the object-typed `steps` items), both HTTP routes, the job-bridge subscription, and the system-prompt section. It also drives the storage lifecycle: a transient `already-open` is retried, and disposing the plugin closes the handle it owns. |
 | `test/client-smoke.mjs` | module-eval and `apply()` throws — what a browser reports as "Failed to load plugins" |
 | `test/render-check.mjs` | render-path throws across every task state. DSH isolates each slot entry, so a component that throws renders *nothing*: the panel disappears while the rest of the UI stays healthy. The harness runs the real component through a minimal hook runtime and renders child components too. |
 | `test/class-check.mjs` | a `css.foo` with no `.foo` rule (and the reverse) — the class map is a plain object, so neither side is typed |
+| `test/bundle-css-check.mjs` | the same split in the *built* artifact: every class in the bundle's exported map must have a rule in the CSS text that bundle injects. Source and build can disagree. |
 
 The typecheck needs the DSH packages as `devDependencies`; they are pinned exactly to the runtime line the plugin targets, and they never ship (`files` lists only `lib/` and the patch).
 

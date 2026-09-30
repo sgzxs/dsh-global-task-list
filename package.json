@@ -1,6 +1,6 @@
 {
   "name": "dsh-global-task-list",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Global task library with a persistent interactive panel: task CRUD tools, linked-subagent terminal-status sync, and a generative-UI surface renderer for the DeepSeek Harness",
   "homepage": "https://github.com/sgzxs/dsh-global-task-list#readme",
   "bugs": {
@@ -38,7 +38,7 @@
     "build:client": "tsdown",
     "typecheck": "tsc --noEmit",
     "pretest": "npm run build:host && npm run build:client",
-    "test": "npm run typecheck && node test/client-smoke.mjs && node test/host-smoke.mjs && node test/render-check.mjs && node test/class-check.mjs",
+    "test": "npm run typecheck && node test/client-smoke.mjs && node test/host-smoke.mjs && node test/render-check.mjs && node test/class-check.mjs && node test/bundle-css-check.mjs",
     "prepare": "npm run build:host && npm run build:client",
     "sync": "node sync-profile.mjs"
   },

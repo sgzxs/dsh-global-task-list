@@ -4,6 +4,18 @@ Notable changes per release, newest first. The DSH peer range is this package's
 compatibility contract: a `0.1.x` release does not install on a `0.2.x` runtime,
 and the runtime rejects it before pnpm runs.
 
+## [0.2.3] — 2026-09-30
+
+### Fixed
+
+- **Toggling the plugin off could crash the whole application.** `apply()` opened the `task_ui` storage domain and never handled a rejection, so a `DomainError` carrying `already-open` escaped as an unhandled promise rejection — which the host treats as fatal, taking the app down mid-reload. `already-open` is documented as *transient* ("the name is open or still closing"), and this path produces it by construction: a host reloads plugins without awaiting the previous instance's disposal, so the next `apply()` runs while the old domain is still tearing down.
+
+  Both halves of the fix are needed. The handle is now closed from the plugin's own `ctx.effect` disposer — `DomainFacility.open` documents that the caller owns the handle, and relying on the facility's asynchronous unmount fallback is what left the name reserved for the next `apply()` to collide with. The open itself retries that one code with a bounded backoff, because a transient failure deserves a retry rather than a hard failure. Any rejection is also observed, so nothing can reach the host as an unhandled rejection.
+
+### Added
+
+- `test/bundle-css-check.mjs` — verifies the *built* client bundle is internally consistent: every class in its exported map has a rule in the CSS text that bundle injects. The source-level class check cannot see a build that drops or renames a rule.
+
 ## [0.2.2] — 2026-09-30
 
 ### Changed
@@ -140,6 +152,7 @@ Initial release: a cross-session global task library, a floating panel with
 status/delete/split controls, subagent job-status sync, and the generative-UI
 `surface` renderer.
 
+[0.2.3]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.1.5...v0.2.0

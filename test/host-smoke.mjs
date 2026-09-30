@@ -24,11 +24,29 @@ const table = {
 const tools = []
 const sections = []
 const routes = []
-const effects = []
+const disposers = []
 let subscribed = null
 
+// Storage-domain double. `openFailures` injects the transient `already-open`
+// rejection a plugin toggle produces while the previous instance is still
+// tearing down; `closed` records that the caller honoured the documented
+// lifecycle by closing the handle it owns.
+let openFailures = 0
+let openCalls = 0
+let closed = 0
+const domain = {
+  table: () => table,
+  close: async () => { closed += 1 },
+}
+
 const ctx = {
-  effect: (callback, label) => { effects.push(label ?? '(unlabelled)'); return callback() },
+  // cordis calls the callback for its disposer and keeps it; the test does the
+  // same so disposal (what a plugin toggle performs) can be simulated.
+  effect: (callback, label) => {
+    const dispose = callback()
+    if (typeof dispose === 'function') disposers.push({ label: label ?? '(unlabelled)', dispose })
+    return dispose
+  },
   on: () => {},
   logger: { warn: () => {}, info: () => {}, error: () => {} },
   tools: {
@@ -41,7 +59,18 @@ const ctx = {
     getSectionOrder: (name) => { sections.push({ orderName: name }); return 2800 },
     section: (spec) => { sections.push(spec); return () => {} },
   },
-  storageDomain: { open: async () => ({ table: () => table }) },
+  storageDomain: {
+    open: async () => {
+      openCalls += 1
+      if (openFailures > 0) {
+        openFailures -= 1
+        const error = new Error('storage domain "task_ui" is already open or still closing')
+        error.code = 'already-open'
+        throw error
+      }
+      return domain
+    },
+  },
   webServer: { register: (route) => { routes.push(route); return () => {} } },
   jobs: { events: { subscribe: (filter, listener) => { subscribed = { filter, listener }; return () => {} } } },
   agents: { list: () => [] },
@@ -51,6 +80,10 @@ const host = await import(new URL('../lib/index.js', import.meta.url).href)
 console.log(`module name          : ${host.name}`)
 console.log(`inject               : ${JSON.stringify(host.inject)}`)
 
+// The first three opens fail the way a plugin toggle does -- the previous
+// instance's teardown has not released the name yet -- so everything below also
+// proves apply() survives it.
+openFailures = 3
 host.apply(ctx, {
   promptSection: true,
   jobStatusMap: { running: 'running', stopping: 'running', completed: 'done', killed: 'blocked', failed: 'failed' },
@@ -169,6 +202,22 @@ console.log(staleGet.text)
 check('task_get warns before the reader acts', staleGet.text.includes('warning: job job-abcdef12'))
 check('task_get says the status is unverified', staleGet.text.includes('unverified'))
 check('the warning precedes progress', staleGet.text.indexOf('warning:') < staleGet.text.indexOf('next:'))
+
+// ---- the toggle lifecycle ----
+// `already-open` is transient ("open or still closing"), so apply() must retry it
+// rather than let it escape: an unhandled rejection here crashed the whole app.
+console.log(`storage opens        : ${openCalls} (3 injected already-open + 1 success)`)
+check('apply() retried the transient already-open', openCalls === 4)
+check('a retried open still yields a working table', rows.size >= 0)
+
+// The documented lifecycle puts the handle on the caller, and closing it from
+// our own effect is what stops the next apply() from racing the teardown.
+const closeEffect = disposers.find((entry) => entry.label.includes('close the task_ui domain'))
+check('a close-on-dispose effect is registered', closeEffect !== undefined)
+closeEffect?.dispose()
+await Promise.resolve()
+console.log(`domains closed on dispose: ${closed}`)
+check('disposing closes the owned domain handle', closed === 1)
 
 // The same row, refreshed after boot, is no longer flagged: a live write means
 // something is actually driving it.

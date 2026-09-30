@@ -296,16 +296,75 @@ function installBundledSkill(): void {
   }
 }
 
+/** The stable `DomainError` code a storage-domain failure carries, when it has one. */
+function domainErrorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  const code = (error as { code?: unknown }).code
+  return typeof code === 'string' ? code : undefined
+}
+
+/**
+ * Open the task domain, tolerating the one transient failure its lifecycle
+ * defines.
+ *
+ * `already-open` means the name is open **or still closing**. A host reloads
+ * plugins without awaiting the previous instance's disposal, so a toggle lands
+ * here legitimately: the name frees only once teardown completes. That makes a
+ * short bounded retry the correct handling and a hard failure a bug — letting
+ * it escape took the whole application down.
+ * @param ctx - plugin context carrying the storage facility.
+ * @param spec - the domain spec to open.
+ * @returns the opened domain handle.
+ */
+async function openTaskDomain(ctx: Context, spec: typeof domainSpec) {
+  const attempts = 8
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await ctx.storageDomain.open(spec)
+    } catch (error) {
+      if (attempt >= attempts || domainErrorCode(error) !== 'already-open') throw error
+      // Teardown is short; back off just enough for it to finish.
+      await new Promise((resolve) => { setTimeout(resolve, 25 * attempt) })
+    }
+  }
+}
+
 export function apply(ctx: Context, config: Config): void {
   // The patch row carries an explicit `config:` block, so the loader always
   // passes a validated config object here (schemastery fills schema defaults).
   const jobStatusMap = config.jobStatusMap
   console.log('[task-ui] host plugin loaded')
   installBundledSkill()
-  // Lazy-open: keep apply() sync (no official dsh-* plugin uses async apply;
-  // the loader does not await it). Tools await the same promise on execute.
-  const domainPromise = ctx.storageDomain.open(domainSpec)
-  const tasksPromise: Promise<KvTable<string, TaskRecord>> = domainPromise.then((domain) => domain.table('tasks'))
+
+  // `DomainFacility.open` documents that the CALLER owns the handle and closes
+  // it via `Domain.close()`, typically from its own `ctx.effect` disposer.
+  // Relying on the facility's fallback (it closes whatever is left open when it
+  // unmounts) is what made disabling this plugin crash the app: that fallback is
+  // asynchronous, the name stays reserved until it finishes, and the next
+  // apply() ran inside that window and failed with `already-open`.
+  let handle: { close: () => Promise<void> } | undefined
+  let disposed = false
+  ctx.effect(() => () => {
+    disposed = true
+    if (handle !== undefined) void handle.close()
+  }, 'task-ui: close the task_ui domain')
+
+  // Lazy-open: keep apply() sync (no official dsh-* plugin uses async apply; the
+  // loader does not await it). Tools await the same promise on execute.
+  const tasksPromise: Promise<KvTable<string, TaskRecord>> = openTaskDomain(ctx, domainSpec).then((domain) => {
+    if (disposed) {
+      // Disposed while the open was in flight: close it rather than reserve the
+      // name for a plugin that is already gone.
+      void domain.close()
+      throw new Error('[task-ui] disposed while opening the task_ui domain')
+    }
+    handle = domain
+    return domain.table('tasks')
+  })
+  // Without this the rejection surfaces as an unhandled promise rejection, which
+  // the host treats as fatal. Tool and HTTP callers await the same promise and
+  // still see the failure.
+  void tasksPromise.catch(() => {})
 
   // ---- subagent job bridge: auto-sync job status -> task status ----
   // The jobs service changed shape in DSH 0.2, so this bridge feature-detects
