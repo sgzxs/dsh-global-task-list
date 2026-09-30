@@ -1,6 +1,6 @@
 {
   "name": "dsh-global-task-list",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Global task library with a persistent interactive panel: task CRUD tools, linked-subagent terminal-status sync, and a generative-UI surface renderer for the DeepSeek Harness",
   "homepage": "https://github.com/sgzxs/dsh-global-task-list#readme",
   "bugs": {
@@ -30,7 +30,8 @@
     "lib/index.js",
     "lib/client.js",
     "cordis.patch.yml",
-    "skills/task-ui/SKILL.md"
+    "skills/task-ui/SKILL.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build:host": "tsdown -c tsdown.host.config.mjs",
