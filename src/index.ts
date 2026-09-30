@@ -19,6 +19,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -270,14 +271,51 @@ async function readJsonBody(req: IncomingMessage): Promise<any> {
 }
 
 /**
- * Seed the bundled `task-ui` skill into the user-level DSH skill root on first
- * activation. The plugin ships `skills/task-ui/SKILL.md`; once, when a user
- * first mounts it, we copy it into `<dshHome>/skills/task-ui/SKILL.md` (rank
- * 400 user root — every session sees it) so the model can load it to create
- * tasks. Idempotent and non-clobbering: if the target already exists (a prior
- * install or an edited user copy), we leave it alone so the author's future
- * skill improvements never overwrite the user's edits with a stale bundle.
- * Fail-soft: a write failure only logs and never blocks plugin load.
+ * Marks a seeded skill file, so a later version can tell "we seeded this and
+ * nobody has touched it" from "the user edited it".
+ *
+ * Shape: `<!-- dsh-global-task-list seed <version> sha256=<hex of the body> -->`
+ * on the first line. The digest covers everything after the marker.
+ */
+const SEED_MARKER = /^<!-- dsh-global-task-list seed (\S+) sha256=([0-9a-f]{64}) -->\r?\n/
+
+/** sha256 of a skill body, for the seed marker. */
+function digestOf(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex')
+}
+
+/** This package's own version, as installed — recorded in the marker so a user can see what seeded their copy. */
+function packageVersion(): string {
+  try {
+    const pkg: unknown = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'))
+    const version = (pkg as { version?: unknown }).version
+    return typeof version === 'string' ? version : '0.0.0'
+  } catch {
+    return '0.0.0'
+  }
+}
+
+/**
+ * Keep the user-level `task-ui` skill in step with the copy this package ships.
+ *
+ * The file is seeded into `<dshHome>/skills/task-ui/SKILL.md` so every session
+ * can load it. It used to be seeded **once** and never again, which meant an
+ * upgraded plugin kept serving whatever skill text the version that first ran
+ * had written — the model would load a months-old manual while the plugin
+ * believed it had shipped a new one.
+ *
+ * So the file carries a marker recording what we wrote and a digest of it. On
+ * each activation:
+ *
+ * - absent → seed it;
+ * - present and the marker matches its own digest → **nobody has edited it**, so
+ *   replace it with this version's text;
+ * - present but unstamped or edited → leave it exactly as it is and drop this
+ *   version's text beside it as `SKILL.md.new`, with a log line naming both
+ *   paths. A hand-edited skill is the user's, and an install must never silently
+ *   eat it.
+ *
+ * Fail-soft: any error only logs and never blocks plugin load.
  */
 function installBundledSkill(): void {
   try {
@@ -286,11 +324,34 @@ function installBundledSkill(): void {
     const src = fileURLToPath(new URL('../skills/task-ui/SKILL.md', import.meta.url))
     if (!existsSync(src)) return
     const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
-    const dest = join(dshHome, 'skills', 'task-ui', 'SKILL.md')
-    if (existsSync(dest)) return
-    mkdirSync(dirname(dest), { recursive: true })
-    writeFileSync(dest, readFileSync(src, 'utf8'))
-    console.log('[task-ui] seeded bundled skill ->', dest)
+    const dir = join(dshHome, 'skills', 'task-ui')
+    const dest = join(dir, 'SKILL.md')
+    const body = readFileSync(src, 'utf8')
+    const stamped = `<!-- dsh-global-task-list seed ${packageVersion()} sha256=${digestOf(body)} -->\n${body}`
+
+    if (!existsSync(dest)) {
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(dest, stamped)
+      console.log('[task-ui] seeded bundled skill ->', dest)
+      return
+    }
+
+    const current = readFileSync(dest, 'utf8')
+    if (current === stamped) return
+
+    const marker = SEED_MARKER.exec(current)
+    const ours = marker !== null && digestOf(current.slice(marker[0].length)) === marker[2]
+    if (ours) {
+      writeFileSync(dest, stamped)
+      console.log(`[task-ui] updated seeded skill ${marker[1]} -> ${packageVersion()}`)
+      return
+    }
+
+    // Unstamped (an older version of this plugin seeded it) or edited by hand:
+    // never clobber. Offer the new text alongside and say so once.
+    const sidecar = `${dest}.new`
+    if (!existsSync(sidecar) || readFileSync(sidecar, 'utf8') !== stamped) writeFileSync(sidecar, stamped)
+    console.log('[task-ui] left the existing skill in place (not seeded by this version, or edited); newer copy at', sidecar)
   } catch (error) {
     console.log('[task-ui] skill install error:', String(error))
   }

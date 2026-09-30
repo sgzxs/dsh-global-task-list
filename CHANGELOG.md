@@ -4,6 +4,16 @@ Notable changes per release, newest first. The DSH peer range is this package's
 compatibility contract: a `0.1.x` release does not install on a `0.2.x` runtime,
 and the runtime rejects it before pnpm runs.
 
+## [0.2.8] — 2026-10-01
+
+### Fixed
+
+- **An upgraded plugin no longer serves a stale skill.** The bundled `task-ui` skill was seeded into `<dshHome>/skills/` **once** and never again, so after an upgrade the model kept being handed whatever manual the version that first ran had written — while the plugin believed it had shipped a new one. The seeded file now carries a marker recording the version and a sha256 of its body, and each activation: refreshes a copy nobody has edited, leaves a copy with no valid marker (hand-edited, or seeded before markers existed) exactly as it is with this version's text written beside it as `SKILL.md.new` and a log line naming both paths, and does nothing when the copy is already current. Fail-soft as before, and never silent about a clobber it declined to make.
+
+### Changed
+
+- `test/host-smoke.mjs` points `$DSH_HOME` at a throwaway directory, so running the suite no longer writes to the developer's real skill root. It covers all three seeding paths: seed when absent, refresh when untouched, leave-and-offer when edited.
+
 ## [0.2.7] — 2026-10-01
 
 ### Added
@@ -196,6 +206,7 @@ Initial release: a cross-session global task library, a floating panel with
 status/delete/split controls, subagent job-status sync, and the generative-UI
 `surface` renderer.
 
+[0.2.8]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.4...v0.2.5

@@ -9,8 +9,20 @@
 // stubs for the libraries themselves, only for the services it injects.
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+// `apply()` seeds the bundled skill into $DSH_HOME, so point that at a throwaway
+// root: a test must never touch the developer's real ~/.dsh/skills.
+const previousDshHome = process.env.DSH_HOME
+const seedHome = mkdtempSync(join(tmpdir(), 'task-ui-seed-'))
+process.env.DSH_HOME = seedHome
+const skillPath = join(seedHome, 'skills', 'task-ui', 'SKILL.md')
+const sidecarPath = `${skillPath}.new`
+const digestOf = (text) => createHash('sha256').update(text, 'utf8').digest('hex')
 
 // ---- in-memory storageDomain ----
 const rows = new Map()
@@ -369,5 +381,50 @@ rows.delete('stale-1')
   check('live SSE streams are closed on dispose', disposers2.some((entry) => entry.label.includes('close live SSE streams')))
 }
 
+// ---- skill seeding ----
+// Seeding used to be write-once, which left an upgraded plugin serving whatever
+// manual the version that first ran had written. It now stamps what it wrote, so
+// it can refresh a copy nobody touched and still never eat a hand-edited one.
+{
+  // A fresh stub context per apply: registering the same tool names twice into
+  // one context would (correctly) collide.
+  const stubCtx = () => ({
+    effect: (callback) => callback(),
+    on: () => {},
+    tools: { register: () => () => {}, get: () => undefined },
+    systemPrompt: { getSectionOrder: () => 2800, section: () => () => {} },
+    storageDomain: { open: async () => ({ table: () => table, close: async () => {} }) },
+    webServer: { register: () => () => {} },
+    jobs: { events: { subscribe: () => () => {} } },
+    agents: { list: () => [] },
+  })
+  const applyAgain = () => host.apply(stubCtx(), {
+    promptSection: true,
+    jobStatusMap: { running: 'running', stopping: 'running', completed: 'done', killed: 'blocked', failed: 'failed' },
+  })
+
+  check('seeds the skill when absent', existsSync(skillPath))
+  const seeded = existsSync(skillPath) ? readFileSync(skillPath, 'utf8') : ''
+  check('the seed carries a marker', seeded.startsWith('<!-- dsh-global-task-list seed'))
+  check('the seed carries the body', seeded.includes('全局任务库与监督面板'))
+
+  // Some earlier version's seed: valid marker, different body. Ours to update.
+  const oldBody = '# an older manual\n'
+  writeFileSync(skillPath, `<!-- dsh-global-task-list seed 0.0.1 sha256=${digestOf(oldBody)} -->\n${oldBody}`)
+  applyAgain()
+  check('refreshes a copy nobody edited', readFileSync(skillPath, 'utf8') === seeded)
+  check('no sidecar when the file was ours', !existsSync(sidecarPath))
+
+  // A hand-edited file has no valid marker. Leave it, offer the new text beside.
+  writeFileSync(skillPath, '# my own manual\n')
+  applyAgain()
+  check('never overwrites a hand-edited skill', readFileSync(skillPath, 'utf8') === '# my own manual\n')
+  check('offers the newer text alongside', existsSync(sidecarPath) && readFileSync(sidecarPath, 'utf8').includes('全局任务库与监督面板'))
+  console.log(`seed marker          : ${seeded.slice(0, 60)}…`)
+}
+
 console.log(failures === 0 ? '\nHOST: PASS' : `\nHOST: FAIL (${failures})`)
+if (previousDshHome === undefined) delete process.env.DSH_HOME
+else process.env.DSH_HOME = previousDshHome
+rmSync(seedHome, { recursive: true, force: true })
 process.exit(failures === 0 ? 0 : 1)
