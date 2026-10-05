@@ -4,6 +4,16 @@ Notable changes per release, newest first. The DSH peer range is this package's
 compatibility contract: a `0.1.x` release does not install on a `0.2.x` runtime,
 and the runtime rejects it before pnpm runs.
 
+## [0.2.11] — 2026-10-05
+
+### Added
+
+- **The plugin now says which build it is.** `taskui_probe` answers `[task-ui] v<version> host alive, tasks=N`, and startup logs `[task-ui] host plugin loaded v<version>`. Neither was answerable before, which turned "the marketplace showed 2.10 but I got 2.3" into guesswork: a marketplace displays the version a registry reports while the install is a package-manager run that can resolve differently — an exact pin, a lockfile entry, or a registry asked in turn — and nothing reconciles the two.
+
+### Changed
+
+- README: "Pin at least 0.2.0" became "use at least 0.2.0", plus a short section on why the displayed and installed versions can disagree and how to make an update land (name the version explicitly; depend on a range rather than an exact pin). An exact pin keeps installing its version no matter what a marketplace shows, and DSH's plugin manager falls back to `registry.npmmirror.com` when the first registry cannot answer, mirror lag included.
+
 ## [0.2.10] — 2026-10-01
 
 ### Fixed
@@ -220,6 +230,7 @@ Initial release: a cross-session global task library, a floating panel with
 status/delete/split controls, subagent job-status sync, and the generative-UI
 `surface` renderer.
 
+[0.2.11]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.10...v0.2.11
 [0.2.10]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.7...v0.2.8

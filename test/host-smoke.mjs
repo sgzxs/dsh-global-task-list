@@ -269,6 +269,14 @@ const noSession = await byName.task_list.execute({})
 check('no session id means no manual', !noSession.text.includes('You have started using the global task library'))
 console.log(`manual size          : ${(await byName.task_list.execute({}, { agent: { session: { id: 'session-c' } } })).text.length} chars, once per session`)
 
+// A marketplace can show one version while the package manager resolves another
+// (an exact pin, a lockfile, or a registry answered by a lagging mirror), and
+// nothing reconciles the two — so the plugin has to be able to say which build
+// is actually running.
+const probe = await byName.taskui_probe.execute({})
+console.log(`probe                : ${probe.text}`)
+check('the probe reports the installed version', /^\[task-ui\] v\d+\.\d+\.\d+ host alive/.test(probe.text))
+
 // A task whose job was linked before this process started cannot still be
 // running: the job registry is in-process. The Host must say so in both read
 // paths instead of letting "running" stand unqualified.

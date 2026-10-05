@@ -28,7 +28,24 @@ dsh plugin --profile web add github:sgzxs/dsh-global-task-list#v0.2.0
 
 The package declares `dsh.bundle`, so `dsh` adds it to the profile's `bundles` automatically. Requires a DSH installation with `@deepseek-ai/dsh-base` and the client surface (`dsh-web-app`) present.
 
-Pin at least `0.2.0` for a `0.2.x` DSH runtime (the desktop app is `0.2.0-rc.2`): earlier releases declare `0.1.x`-only DSH peer ranges, and the runtime rejects them before pnpm runs, with `installation rejected: Plugin dsh-global-task-list@0.1.5 is incompatible with dsh 0.2.0-rc.2`. The desktop app additionally manages its profile itself — see [Installing on the desktop app](#installing-on-the-desktop-app).
+Use at least `0.2.0` for a `0.2.x` DSH runtime (the desktop app is `0.2.0-rc.2`): earlier releases declare `0.1.x`-only DSH peer ranges, and the runtime rejects them before pnpm runs, with `installation rejected: Plugin dsh-global-task-list@0.1.5 is incompatible with dsh 0.2.0-rc.2`. The desktop app additionally manages its profile itself — see [Installing on the desktop app](#installing-on-the-desktop-app).
+
+### Which version did I actually get?
+
+Not necessarily the one that was displayed. A marketplace shows the version a registry reports, while the install is a package-manager run that can resolve differently — an exact pin in the profile's `package.json`, a `pnpm-lock.yaml` entry, or a registry asked in turn (DSH's plugin manager falls back to `registry.npmmirror.com` when the first one is unreachable or answers that it has no such version, and a mirror lags npm). **Nothing reconciles the two**, so "the marketplace said 2.10 but I got 2.3" is a resolution result, not a stale download.
+
+Two ways to see the truth:
+
+- ask the agent to run `taskui_probe` — it answers `[task-ui] v<version> host alive, tasks=N`; the host log line `[task-ui] host plugin loaded v<version>` says the same at startup;
+- read the profile: `<dshHome>/profiles/<profile>/node_modules/dsh-global-task-list/package.json`.
+
+To make an update actually land, name the version explicitly — an exact version also lets the manager's registry plan move past a mirror that does not have it yet:
+
+```sh
+dsh plugin --profile web add dsh-global-task-list@0.2.11
+```
+
+And to keep receiving updates, depend on a **range** rather than an exact version: a profile pinned to `0.2.2` will keep installing `0.2.2` no matter what the marketplace shows.
 
 ### GitHub install: allowBuilds
 

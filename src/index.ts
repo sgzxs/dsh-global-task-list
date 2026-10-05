@@ -613,7 +613,11 @@ export function apply(ctx: Context, config: Config): void {
   // The patch row carries an explicit `config:` block, so the loader always
   // passes a validated config object here (schemastery fills schema defaults).
   const jobStatusMap = config.jobStatusMap
-  console.log('[task-ui] host plugin loaded')
+  // The version is logged because "which build am I actually running?" is not
+  // otherwise answerable: a marketplace can show one version while a package
+  // manager resolves another (an exact pin, a lockfile, or a registry that
+  // answered from a lagging mirror), and nothing reconciles the two.
+  console.log(`[task-ui] host plugin loaded v${packageVersion()}`)
   installBundledSkill()
 
   // `DomainFacility.open` documents that the CALLER owns the handle and closes
@@ -896,12 +900,12 @@ export function apply(ctx: Context, config: Config): void {
 
   registerTool(defineTool({
     name: 'taskui_probe',
-    description: 'Report the task-library plugin\'s host status and the current task count.',
+    description: 'Report the task-library plugin\'s host status, its installed version, and the current task count.',
     parameters: {},
     output: textOutput(),
     async execute() {
       const rows = await listTasks(await tasksPromise)
-      return { text: `[task-ui] host alive, tasks=${rows.length}` }
+      return { text: `[task-ui] v${packageVersion()} host alive, tasks=${rows.length}` }
     },
   }))
 
