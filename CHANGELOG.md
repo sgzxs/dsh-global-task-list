@@ -4,6 +4,14 @@ Notable changes per release, newest first. The DSH peer range is this package's
 compatibility contract: a `0.1.x` release does not install on a `0.2.x` runtime,
 and the runtime rejects it before pnpm runs.
 
+## [0.2.12] — 2026-10-06
+
+### Added
+
+- **An orchestration hook hands the manual over before the model records anything.** The other delivery levers all reach a model that is *already* using the library, which is late for the one instruction that matters most — "record this before you start". A `tools/post-execute` listener now watches for the calls that reveal the intent first: `todo_write` (it decided the work needs tracking), any `subagent*` spawn (it is delegating), `workflow`, `ralph`. The first one in a session attaches the manual to that call through `additionalContexts` — the harness's own channel for attaching context to a request — so the called tool's result is left exactly as its owner wrote it.
+
+  The injected message declares this plugin's own `MessageSourceMap` kind, per the harness's rule that each producer declares its own rather than sharing a catch-all, and `form: 'instructions'` — the semantic vocabulary's term for instructions read out of a file, which is what the bundled skill is. Both delivery channels share one once-per-session set, so exactly one wins and the manual is never sent twice.
+
 ## [0.2.11] — 2026-10-05
 
 ### Added
@@ -230,6 +238,7 @@ Initial release: a cross-session global task library, a floating panel with
 status/delete/split controls, subagent job-status sync, and the generative-UI
 `surface` renderer.
 
+[0.2.12]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.11...v0.2.12
 [0.2.11]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.10...v0.2.11
 [0.2.10]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/sgzxs/dsh-global-task-list/compare/v0.2.8...v0.2.9

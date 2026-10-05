@@ -26,6 +26,7 @@ const digestOf = (text) => createHash('sha256').update(text, 'utf8').digest('hex
 
 // ---- in-memory storageDomain ----
 const rows = new Map()
+const listeners = {}
 const table = {
   async *entries() { for (const [key, value] of rows) yield [key, value] },
   async put(key, value) { rows.set(key, value) },
@@ -59,7 +60,9 @@ const ctx = {
     if (typeof dispose === 'function') disposers.push({ label: label ?? '(unlabelled)', dispose })
     return dispose
   },
-  on: () => {},
+  // Listeners are captured so the test can drive the waterfall events the plugin
+  // subscribes to (this is how the orchestration hook gets exercised).
+  on: (event, handler) => { (listeners[event] ??= []).push(handler) },
   logger: { warn: () => {}, info: () => {}, error: () => {} },
   tools: {
     register: (definition) => { tools.push(definition); return () => {} },
@@ -455,6 +458,37 @@ rows.delete('stale-1')
   check('never overwrites a hand-edited skill', readFileSync(skillPath, 'utf8') === '# my own manual\n')
   check('offers the newer text alongside', existsSync(sidecarPath) && readFileSync(sidecarPath, 'utf8').includes('全局任务库与监督面板'))
   console.log(`seed marker          : ${seeded.slice(0, 60)}…`)
+}
+
+// ---- orchestration hook ----
+// The manual must reach a session that shows multi-step intent, not only one
+// that already called our tools: our tools can only explain themselves after the
+// fact, and "record this before you start" is worthless after the fact.
+{
+  const postExecute = (listeners['tools/post-execute'] ?? [])[0]
+  check('an orchestration hook is registered', typeof postExecute === 'function')
+  const accept = async () => ({ kind: 'accept' })
+
+  if (typeof postExecute === 'function') {
+    const agent = { session: { id: 'session-orchestrating' } }
+    // A written todo list is the model saying "this is multi-step".
+    const todo = await postExecute({ name: 'todo_write', agent }, {}, accept)
+    const attached = todo?.additionalContexts ?? []
+    console.log(`hook contexts        : ${attached.length} on todo_write`)
+    check('the hook attaches the manual on todo_write', attached.length === 1)
+    check('the message is attributed to this plugin', attached[0]?.source?.kind === 'task-ui')
+    check('the message declares itself instructions', attached[0]?.source?.form === 'instructions')
+    check('the message carries the skill body', JSON.stringify(attached[0]?.content ?? '').includes('全局任务库与监督面板'))
+
+    const again = await postExecute({ name: 'todo_write', agent }, {}, accept)
+    check('the hook delivers once per session', (again?.additionalContexts ?? []).length === 0)
+
+    const unrelated = await postExecute({ name: 'read', agent: { session: { id: 'session-other' } } }, {}, accept)
+    check('an unrelated tool draws nothing', (unrelated?.additionalContexts ?? []).length === 0)
+
+    const delegated = await postExecute({ name: 'subagent_local', agent: { session: { id: 'session-other' } } }, {}, accept)
+    check('a subagent spawn is also an orchestration signal', (delegated?.additionalContexts ?? []).length === 1)
+  }
 }
 
 console.log(failures === 0 ? '\nHOST: PASS' : `\nHOST: FAIL (${failures})`)

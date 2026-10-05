@@ -7,7 +7,21 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ContextFormed } from '@deepseek-ai/dsh-llm'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /**
+     * The task library handing a session its operator manual.
+     *
+     * The harness's message vocabulary asks each producer to declare its own
+     * `kind` rather than share a catch-all `plugin` one, and to declare the
+     * semantic `form` of what it injects — here `instructions`, since the manual
+     * is instructions read out of the package's own skill file.
+     */
+    'task-ui': { kind: 'task-ui' } & ContextFormed
+  }
+}
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 // Type-only: pulls the `ctx.jobs` Context augmentation without binding the
@@ -587,6 +601,37 @@ function operatorManual(): string {
 }
 
 /**
+ * Take the operator manual for one session, at most once.
+ *
+ * Two channels deliver it — a `task_*` result, and any tool that shows the model
+ * is orchestrating multi-step work — and both go through here so exactly one of
+ * them wins.
+ * @param sessionId - the calling session, or anything else when there is none.
+ * @returns the manual text, or undefined when it is unreadable or already sent.
+ */
+function takeManualFor(sessionId: unknown): string | undefined {
+  if (typeof sessionId !== 'string' || manualDelivered.has(sessionId)) return undefined
+  const manual = operatorManual()
+  if (manual === '') return undefined
+  manualDelivered.add(sessionId)
+  return manual
+}
+
+/** The lead sentence a delivery carries, so the model knows why it is reading this. */
+const MANUAL_LEAD_USED = 'You have started using the global task library, so here is how to use it well.'
+const MANUAL_LEAD_ORCHESTRATING = 'This session is orchestrating multi-step work, which is what the global task library is for.'
+
+/**
+ * Frame the manual for delivery.
+ * @param lead - why this session is being handed the manual.
+ * @param manual - the skill body.
+ * @returns the message text.
+ */
+function manualText(lead: string, manual: string): string {
+  return `${lead} This is the bundled \`task-ui\` skill; read it once and follow it for the rest of this session.\n\n---\n\n${manual}`
+}
+
+/**
  * Hand a session the operator manual the first time it uses the library.
  *
  * The skill is model-invoked, so a model that never calls the `skill` tool never
@@ -601,12 +646,28 @@ function operatorManual(): string {
  * @returns the result text, with the manual appended the first time.
  */
 function withManual(exec: unknown, text: string): string {
-  const sessionId = (exec as { agent?: { session?: { id?: unknown } } } | undefined)?.agent?.session?.id
-  if (typeof sessionId !== 'string' || manualDelivered.has(sessionId)) return text
-  const manual = operatorManual()
-  if (manual === '') return text
-  manualDelivered.add(sessionId)
-  return `${text}\n\n---\n\nYou have started using the global task library, so here is how to use it well. This is the bundled \`task-ui\` skill; read it once and follow it for the rest of this session.\n\n${manual}`
+  const manual = takeManualFor((exec as { agent?: { session?: { id?: unknown } } } | undefined)?.agent?.session?.id)
+  return manual === undefined ? text : `${text}\n\n---\n\n${manualText(MANUAL_LEAD_USED, manual)}`
+}
+
+/**
+ * Tool names whose call is evidence that the model is organising multi-step work.
+ *
+ * This is the signal the library exists for, and it usually arrives **before** the
+ * first `task_*` call: a model that has just written a todo list, or is spawning a
+ * subagent, has already decided the work is multi-step. Watching these is what
+ * lets the manual reach it before it has recorded anything — the whole point of
+ * the hook, since our own tools can only explain themselves after the fact.
+ * @param name - the tool that just ran.
+ * @returns true when the call is an orchestration signal.
+ */
+function isOrchestrationSignal(name: string): boolean {
+  return name === 'todo_write'
+    || name.startsWith('subagent')
+    || name === 'workflow'
+    || name === 'ralph'
+    || name.startsWith('task_')
+    || name === 'taskui_probe'
 }
 
 export function apply(ctx: Context, config: Config): void {
@@ -838,6 +899,35 @@ export function apply(ctx: Context, config: Config): void {
     }
     connections.clear()
   }, 'task-ui: close live SSE streams')
+
+  // ---- orchestration hook ----
+  //
+  // The user-facing goal is "when the model starts managing multi-step work, it
+  // should already know how to use the library". Our own tools can only explain
+  // themselves once they are called, which is late; this watches the calls that
+  // reveal the intent first — a written todo list, a spawned subagent — and hands
+  // the session the manual there.
+  //
+  // `additionalContexts` is the harness's own channel for this ("attach context
+  // for the next request"), so the called tool's result is left exactly as its
+  // owner wrote it; we only add a message beside it, attributed to this plugin by
+  // its own `kind` and declared `instructions`.
+  ctx.on('tools/post-execute', async (exec, _result, next) => {
+    const decision = await next()
+    if (!isOrchestrationSignal(exec.name)) return decision
+    const manual = takeManualFor(exec.agent?.session?.id)
+    if (manual === undefined) return decision
+    return {
+      ...decision,
+      additionalContexts: [
+        ...(decision.additionalContexts ?? []),
+        createUserMessage({
+          content: [{ type: 'text', text: manualText(MANUAL_LEAD_ORCHESTRATING, manual) }],
+          source: { kind: 'task-ui', form: 'instructions' },
+        }),
+      ],
+    }
+  })
 
   ctx.on('domain/changed', (change) => {
     // Only the task_ui domain drives panel refreshes; every durable write
